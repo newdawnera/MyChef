@@ -1,0 +1,527 @@
+// app/(tabs)/index.tsx - WITH DARK MODE SUPPORT
+import React, { useState, useRef } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  StatusBar,
+  Animated,
+  Pressable,
+  FlatList,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router } from "expo-router";
+import {
+  Search,
+  Sparkles,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Flame,
+  User,
+} from "lucide-react-native";
+import { useTheme } from "@/contexts/ThemeContext";
+import { CATEGORIES, SPACING } from "@/constants/categories";
+
+const recentRecipes = [
+  {
+    id: 1,
+    image:
+      "https://images.unsplash.com/photo-1574665619640-df774e5f01bb?auto=format&fit=crop&w=800&q=80",
+    title: "Buddha Bowl",
+    time: "25 min",
+    calories: "350 cal",
+  },
+  {
+    id: 2,
+    image:
+      "https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?auto=format&fit=crop&w=800&q=80",
+    title: "Creamy Pasta",
+    time: "30 min",
+    calories: "520 cal",
+  },
+  // ... rest of recipes
+];
+
+// Category Carousel Item Component
+interface CategoryCarouselItemProps {
+  category: (typeof CATEGORIES)[0];
+  onPress: () => void;
+}
+
+const CategoryCarouselItemComponent: React.FC<CategoryCarouselItemProps> = ({
+  category,
+  onPress,
+}) => {
+  const { colors } = useTheme();
+  const [scaleAnim] = useState(new Animated.Value(1));
+  const Icon = category.icon;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.95,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={{
+        marginRight: 16,
+        alignItems: "center",
+      }}
+    >
+      <Animated.View
+        style={{
+          transform: [{ scale: scaleAnim }],
+        }}
+      >
+        <View
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: SPACING.borderRadius,
+            backgroundColor: colors.cardBg,
+            shadowColor: colors.shadow,
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 8,
+            elevation: 4,
+            borderWidth: 1,
+            borderColor: category.borderColor,
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 8,
+          }}
+        >
+          <Icon size={30} color={category.color} strokeWidth={1.8} />
+        </View>
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: "500",
+            color: colors.textPrimary,
+            textAlign: "center",
+            maxWidth: 72,
+          }}
+          numberOfLines={1}
+        >
+          {category.label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+};
+
+CategoryCarouselItemComponent.displayName = "CategoryCarouselItem";
+const CategoryCarouselItem = React.memo(CategoryCarouselItemComponent);
+
+// Recipe Card Component
+interface RecipeCardProps {
+  recipe: (typeof recentRecipes)[0];
+  onPress: () => void;
+}
+
+const RecipeCardComponent: React.FC<RecipeCardProps> = ({
+  recipe,
+  onPress,
+}) => {
+  const { colors } = useTheme();
+
+  return (
+    <TouchableOpacity
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: colors.cardBg,
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4,
+        borderRadius: 16,
+        padding: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginBottom: 12,
+      }}
+      onPress={onPress}
+    >
+      <Image
+        source={{ uri: recipe.image }}
+        style={{
+          width: 80,
+          height: 80,
+          borderRadius: 12,
+          marginRight: 16,
+          backgroundColor: colors.background,
+        }}
+      />
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: "600",
+            color: colors.textPrimary,
+            marginBottom: 4,
+          }}
+          numberOfLines={1}
+        >
+          {recipe.title}
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Clock size={14} color={colors.textSecondary} />
+          <Text
+            style={{
+              fontSize: 14,
+              color: colors.textSecondary,
+              marginLeft: 4,
+            }}
+          >
+            {recipe.time}
+          </Text>
+          <Text
+            style={{
+              fontSize: 14,
+              color: colors.textSecondary,
+              marginHorizontal: 8,
+            }}
+          >
+            •
+          </Text>
+          <Flame size={14} color={colors.textSecondary} />
+          <Text
+            style={{
+              fontSize: 14,
+              color: colors.textSecondary,
+              marginLeft: 4,
+            }}
+          >
+            {recipe.calories}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+RecipeCardComponent.displayName = "RecipeCard";
+const RecipeCard = React.memo(RecipeCardComponent);
+
+export default function HomeScreen() {
+  const { colors, theme } = useTheme();
+  const [search, setSearch] = useState("");
+  const [allItemsShowing, setAllItemsShowing] = useState(false);
+
+  const displayedRecipes = allItemsShowing
+    ? recentRecipes
+    : recentRecipes.slice(0, 6);
+
+  const handleAIGeneration = () => {
+    router.push("../ai-generate");
+  };
+
+  const handleCategoryPress = (category: any) => {
+    router.push(`../recipes/category?id=${category.id}`);
+  };
+
+  const handleSeeAllCategories = () => {
+    router.push("../categories");
+  };
+
+  const handleRecipePress = (id: number) => {
+    router.push(`../recipes/details?id=${id}`);
+  };
+
+  const handleLoadMore = () => {
+    setAllItemsShowing(true);
+  };
+
+  const handleShowLess = () => {
+    setAllItemsShowing(false);
+  };
+
+  return (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      edges={["top"]}
+    >
+      <StatusBar
+        barStyle={theme === "dark" ? "light-content" : "dark-content"}
+      />
+
+      {/* Main Container with padding bottom for tab bar */}
+      <View style={{ flex: 1, paddingBottom: 80 }}>
+        {/* Fixed Header Content */}
+        <View>
+          {/* Header - Greeting and Profile */}
+          <View
+            style={{
+              paddingHorizontal: SPACING.containerPadding,
+              paddingTop: 20,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 16,
+            }}
+          >
+            <View>
+              <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                Good Morning
+              </Text>
+              <Text
+                style={{
+                  fontSize: 24,
+                  fontWeight: "bold",
+                  color: colors.textPrimary,
+                }}
+              >
+                What&apos;s cooking today?
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: colors.cardBg,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+              onPress={() => router.push("../profile")}
+            >
+              <User size={24} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Bar */}
+
+          <View
+            style={{
+              paddingHorizontal: SPACING.containerPadding,
+              paddingTop: 20, // Adjusted to match visual rhythm
+              paddingBottom: 24,
+            }}
+          >
+            <View style={{ position: "relative" }}>
+              <View
+                style={{
+                  position: "absolute",
+                  left: 16,
+                  top: "50%",
+                  transform: [{ translateY: -10 }],
+                  zIndex: 1,
+                }}
+              >
+                {/* Use #6B7280 for the icon color to match saved.tsx */}
+                <Search size={20} color="#6B7280" />
+              </View>
+              <TextInput
+                placeholder="Search recipes, ingredients..."
+                placeholderTextColor="#9CA3AF" // Match placeholder color
+                value={search}
+                onChangeText={setSearch}
+                style={{
+                  backgroundColor: "#F3F4F6", // Match background color
+                  borderRadius: 20, // Match border radius (20 vs 16)
+                  paddingVertical: 14,
+                  paddingHorizontal: 16,
+                  paddingLeft: 48,
+                  fontSize: 15, // Match font size
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB", // Match border color
+                  color: "#1A1A1A", // Match text color
+                }}
+              />
+            </View>
+          </View>
+
+          {/* AI Recipe Generator Button */}
+          <View
+            style={{
+              paddingHorizontal: SPACING.containerPadding,
+              marginBottom: 20,
+            }}
+          >
+            <TouchableOpacity
+              onPress={handleAIGeneration}
+              style={{
+                backgroundColor: colors.primary,
+                borderRadius: 16,
+                paddingVertical: 18,
+                paddingHorizontal: 20,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: colors.primary,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
+            >
+              <Sparkles size={20} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: "#ffffff",
+                }}
+              >
+                Generate Recipes with AI
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Categories Carousel */}
+          <View style={{ marginBottom: 24 }}>
+            {/* Section Header */}
+            <View
+              style={{
+                paddingHorizontal: SPACING.containerPadding,
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+                paddingTop: 20,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "600",
+                  color: colors.textPrimary,
+                }}
+              >
+                Categories
+              </Text>
+              <TouchableOpacity
+                onPress={handleSeeAllCategories}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 14,
+                    fontWeight: "500",
+                    color: colors.primary,
+                  }}
+                >
+                  See All
+                </Text>
+                <ChevronRight size={16} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Horizontal Scrollable Categories */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                paddingHorizontal: SPACING.containerPadding,
+                paddingVertical: 4,
+              }}
+            >
+              {CATEGORIES.map((category) => (
+                <CategoryCarouselItem
+                  key={category.id}
+                  category={category}
+                  onPress={() => handleCategoryPress(category)}
+                />
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Recent Recipes Header */}
+          <View
+            style={{
+              paddingHorizontal: SPACING.containerPadding,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8,
+              paddingTop: 20,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "600",
+                color: colors.textPrimary,
+              }}
+            >
+              Recent Recipes
+            </Text>
+            <TouchableOpacity
+              onPress={allItemsShowing ? handleShowLess : handleLoadMore}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: "500",
+                  color: colors.primary,
+                }}
+              >
+                {allItemsShowing ? "Show Less" : "Show More"}
+              </Text>
+              {allItemsShowing ? (
+                <ChevronUp size={16} color={colors.primary} />
+              ) : (
+                <ChevronDown size={16} color={colors.primary} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* SCROLLABLE RECENT RECIPES SECTION ONLY */}
+        <FlatList
+          data={displayedRecipes}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <RecipeCard
+              recipe={item}
+              onPress={() => handleRecipePress(item.id)}
+            />
+          )}
+          contentContainerStyle={{
+            paddingHorizontal: SPACING.containerPadding,
+            paddingTop: 4,
+            paddingBottom: 24,
+          }}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          updateCellsBatchingPeriod={50}
+          initialNumToRender={6}
+          windowSize={10}
+        />
+      </View>
+    </SafeAreaView>
+  );
+}

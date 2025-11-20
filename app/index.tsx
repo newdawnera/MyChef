@@ -1,374 +1,155 @@
-// // app/onboarding/index.tsx
+// app/index.tsx
+/**
+ * Auth Router / Splash Screen with Session Management
+ *
+ * This is the entry point of the app. It checks the user's authentication state
+ * and redirects them to the appropriate screen:
+ * - Authenticated users with valid session → (tabs) (main app)
+ * - Authenticated users with expired session → logout and redirect to onboarding
+ * - New/unauthenticated users → onboarding
+ *
+ * ENHANCED WITH APP STATE MONITORING:
+ * - Tracks when app moves to foreground/background
+ * - Updates activity timestamp when app becomes active
+ * - Ensures session timeout is checked on every app launch
+ *
+ * This pattern ensures protected routes and a smooth onboarding experience
+ * while maintaining security through session management.
+ */
 
-// import React, { useState, useRef, useEffect } from "react";
-// import {
-//   View,
-//   Text,
-//   TouchableOpacity,
-//   SafeAreaView,
-//   Animated,
-//   StatusBar,
-//   Dimensions,
-// } from "react-native";
-// import { ChefHat, Sparkles, BookMarked } from "lucide-react-native";
-// import { useRouter } from "expo-router";
+import { useEffect, useRef } from "react";
+import {
+  View,
+  ActivityIndicator,
+  Text,
+  AppState,
+  AppStateStatus,
+} from "react-native";
+import { useRouter, SplashScreen } from "expo-router";
+import { useAuth } from "@/hooks/useAuth";
+import { SessionManager } from "@/lib/sessionManager";
+import { ChefHat } from "lucide-react-native";
 
-// import {
-//   PanGestureHandler,
-//   State,
-//   PanGestureHandlerStateChangeEvent,
-// } from "react-native-gesture-handler";
+// Prevent the splash screen from auto-hiding
+SplashScreen.preventAutoHideAsync();
 
-// const { width } = Dimensions.get("window");
+export default function Index() {
+  const { user, initialising, updateActivity } = useAuth();
+  const router = useRouter();
+  const appState = useRef(AppState.currentState);
 
-// const slides = [
-//   {
-//     icon: ChefHat,
-//     title: "MyChef",
-//     description: "Your AI Cooking Assistant",
-//     color: "#70AD47",
-//     isSplash: true,
-//   },
-//   {
-//     icon: ChefHat,
-//     title: "AI-Powered Recipes",
-//     description:
-//       "Get personalized recipe suggestions based on your preferences and available ingredients",
-//     color: "#70AD47",
-//     isSplash: false,
-//   },
-//   {
-//     icon: Sparkles,
-//     title: "Smart Suggestions",
-//     description:
-//       "Our AI learns your taste and dietary needs to provide better recommendations",
-//     color: "#FF9500",
-//     isSplash: false,
-//   },
-//   {
-//     icon: BookMarked,
-//     title: "Save & Organize",
-//     description:
-//       "Keep your favorite recipes in one place and access them anytime",
-//     color: "#70AD47",
-//     isSplash: false,
-//   },
-// ];
+  /**
+   * Monitor app state changes (foreground/background)
+   *
+   * Updates activity timestamp when app becomes active.
+   * This ensures the session timeout is reset whenever the user opens the app.
+   */
+  useEffect(() => {
+    const subscription = AppState.addEventListener(
+      "change",
+      async (nextAppState: AppStateStatus) => {
+        // App has come to foreground
+        if (
+          appState.current.match(/inactive|background/) &&
+          nextAppState === "active"
+        ) {
+          console.log("App has come to the foreground");
 
-// export default function Onboarding() {
-//   const router = useRouter();
-//   const [index, setIndex] = useState(0);
+          // Update activity timestamp if user is logged in
+          if (user) {
+            await updateActivity();
 
-//   const fadeAnim = useRef(new Animated.Value(0)).current;
-//   const scaleAnim = useRef(new Animated.Value(1)).current;
-//   const rotateAnim = useRef(new Animated.Value(0)).current;
-//   const slideAnim = useRef(new Animated.Value(0)).current;
+            // Optional: Check if session is still valid
+            const sessionValid = await SessionManager.isSessionValid();
+            if (!sessionValid) {
+              console.log("Session expired while app was in background");
+              // The AuthContext will handle the logout automatically
+              // Just need to trigger a re-check
+              router.replace("/onboarding");
+            }
+          }
+        }
 
-//   const slide = slides[index];
-//   const Icon = slide.icon;
+        appState.current = nextAppState;
+      }
+    );
 
-//   // Auto-advance from splash screen after 2 seconds
-//   useEffect(() => {
-//     if (index === 0) {
-//       const timer = setTimeout(() => {
-//         setIndex(1);
-//       }, 2000);
-//       return () => clearTimeout(timer);
-//     }
-//   }, [index]);
+    return () => {
+      subscription.remove();
+    };
+  }, [user, updateActivity, router]);
 
-//   // Fade & slight slide-in animation for content
-//   const animateIn = () => {
-//     fadeAnim.setValue(0);
-//     slideAnim.setValue(20);
+  /**
+   * Handle initial auth state and routing
+   */
+  useEffect(() => {
+    // Wait for auth state to be determined
+    if (initialising) {
+      return;
+    }
 
-//     Animated.parallel([
-//       Animated.timing(fadeAnim, {
-//         toValue: 1,
-//         duration: 400,
-//         useNativeDriver: true,
-//       }),
-//       Animated.spring(slideAnim, {
-//         toValue: 0,
-//         useNativeDriver: true,
-//       }),
-//     ]).start();
-//   };
+    // Hide the native splash screen once we know the auth state
+    SplashScreen.hideAsync();
 
-//   useEffect(() => {
-//     animateIn();
-//   }, [index]);
+    // Redirect based on auth state
+    if (user) {
+      // User is authenticated → go to main app
+      router.replace("/(tabs)");
+    } else {
+      // User is not authenticated → go to onboarding
+      router.replace("/onboarding");
+    }
+  }, [user, initialising, router]);
 
-//   // Continuous icon animations
-//   useEffect(() => {
-//     const pulseAnimation = Animated.loop(
-//       Animated.sequence([
-//         Animated.timing(scaleAnim, {
-//           toValue: 1.15,
-//           duration: 1500,
-//           useNativeDriver: true,
-//         }),
-//         Animated.timing(scaleAnim, {
-//           toValue: 1,
-//           duration: 1500,
-//           useNativeDriver: true,
-//         }),
-//       ])
-//     );
+  // Show a nice loading screen while checking auth state
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "#F8F9FA",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {/* App Logo */}
+      <View
+        style={{
+          width: 80,
+          height: 80,
+          borderRadius: 40,
+          backgroundColor: "rgba(76, 175, 80, 0.1)",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 24,
+        }}
+      >
+        <ChefHat size={40} color="#4CAF50" strokeWidth={1.5} />
+      </View>
 
-//     const rotateAnimation = Animated.loop(
-//       Animated.sequence([
-//         Animated.timing(rotateAnim, {
-//           toValue: 1,
-//           duration: 3000,
-//           useNativeDriver: true,
-//         }),
-//         Animated.timing(rotateAnim, {
-//           toValue: 0,
-//           duration: 3000,
-//           useNativeDriver: true,
-//         }),
-//       ])
-//     );
+      {/* App Name */}
+      <Text
+        style={{
+          fontSize: 24,
+          fontWeight: "700",
+          color: "#1A1A1A",
+          marginBottom: 32,
+        }}
+      >
+        MyChef
+      </Text>
 
-//     pulseAnimation.start();
-//     rotateAnimation.start();
+      {/* Loading Indicator */}
+      <ActivityIndicator size="large" color="#4CAF50" />
 
-//     return () => {
-//       pulseAnimation.stop();
-//       rotateAnimation.stop();
-//     };
-//   }, []);
-
-//   const spin = rotateAnim.interpolate({
-//     inputRange: [0, 1],
-//     outputRange: ["-5deg", "5deg"],
-//   });
-
-//   // === SWIPE HANDLER (Gesture Handler) ===
-//   const SWIPE_THRESHOLD = width * 0.15; // ~15% of screen width
-
-//   const onHandlerStateChange = (event: PanGestureHandlerStateChangeEvent) => {
-//     const { translationX, oldState } = event.nativeEvent;
-
-//     // We only care when the gesture ends after being active
-//     if (oldState === State.ACTIVE) {
-//       // RIGHT -> LEFT swipe (finger moves left, translationX negative) => NEXT slide
-//       if (translationX < -SWIPE_THRESHOLD) {
-//         if (index < slides.length - 1) {
-//           setIndex((prev) => prev + 1);
-//         } else {
-//           // Only go to login when already on the last slide
-//           router.replace("/login");
-//         }
-//       }
-//       // LEFT -> RIGHT swipe (finger moves right, translationX positive) => PREVIOUS slide
-//       else if (translationX > SWIPE_THRESHOLD) {
-//         // Don't go back before the first interactive slide (index 1)
-//         if (index > 1) {
-//           setIndex((prev) => prev - 1);
-//         }
-//       }
-//     }
-//   };
-
-//   const goNext = () => {
-//     if (index < slides.length - 1) {
-//       setIndex((prev) => prev + 1);
-//     } else {
-//       router.replace("/login");
-//     }
-//   };
-
-//   // Splash screen (first slide)
-//   if (slide.isSplash) {
-//     return (
-//       <SafeAreaView style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
-//         <StatusBar barStyle="dark-content" />
-//         <View
-//           style={{
-//             flex: 1,
-//             alignItems: "center",
-//             justifyContent: "center",
-//             paddingHorizontal: 20,
-//           }}
-//         >
-//           <Animated.View
-//             style={{
-//               width: 120,
-//               height: 120,
-//               borderRadius: 60,
-//               alignItems: "center",
-//               justifyContent: "center",
-//               backgroundColor: "rgba(112, 173, 71, 0.15)",
-//               marginBottom: 32,
-//               transform: [{ scale: scaleAnim }, { rotate: spin }],
-//             }}
-//           >
-//             <Icon size={60} color={slide.color} strokeWidth={1.5} />
-//           </Animated.View>
-
-//           <Text
-//             style={{
-//               fontSize: 32,
-//               fontWeight: "700",
-//               color: "#1A1A1A",
-//               marginBottom: 12,
-//               textAlign: "center",
-//             }}
-//           >
-//             {slide.title}
-//           </Text>
-
-//           <Text
-//             style={{
-//               fontSize: 16,
-//               color: "#6B7280",
-//               textAlign: "center",
-//               maxWidth: "80%",
-//             }}
-//           >
-//             {slide.description}
-//           </Text>
-//         </View>
-//       </SafeAreaView>
-//     );
-//   }
-
-//   // Regular onboarding slides
-//   return (
-//     <SafeAreaView style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
-//       <StatusBar barStyle="dark-content" />
-
-//       {/* Wrap the whole screen in a PanGestureHandler so swipes anywhere work */}
-//       <PanGestureHandler onHandlerStateChange={onHandlerStateChange}>
-//         <Animated.View style={{ flex: 1, paddingTop: 10, paddingBottom: 20 }}>
-//           {/* Skip */}
-//           <View
-//             style={{
-//               alignItems: "flex-end",
-//               marginBottom: 20,
-//               paddingHorizontal: 20,
-//             }}
-//           >
-//             <TouchableOpacity onPress={() => router.replace("/login")}>
-//               <Text style={{ fontSize: 16, color: "#6B7280", padding: 8 }}>
-//                 Skip
-//               </Text>
-//             </TouchableOpacity>
-//           </View>
-
-//           {/* Content */}
-//           <Animated.View
-//             style={{
-//               flex: 1,
-//               alignItems: "center",
-//               justifyContent: "center",
-//               paddingHorizontal: 32,
-//               opacity: fadeAnim,
-//               transform: [{ translateY: slideAnim }],
-//             }}
-//           >
-//             {/* Icon Glow Circle with animations */}
-//             <Animated.View
-//               style={{
-//                 width: 130,
-//                 height: 130,
-//                 borderRadius: 65,
-//                 alignItems: "center",
-//                 justifyContent: "center",
-//                 marginBottom: 40,
-//                 backgroundColor: slide.color + "15",
-//                 shadowColor: slide.color,
-//                 shadowOpacity: 0.25,
-//                 shadowRadius: 30,
-//                 shadowOffset: { width: 0, height: 10 },
-//                 elevation: 6,
-//                 transform: [{ scale: scaleAnim }, { rotate: spin }],
-//               }}
-//             >
-//               <Icon size={60} color={slide.color} strokeWidth={1.5} />
-//             </Animated.View>
-
-//             {/* Title */}
-//             <Text
-//               style={{
-//                 fontSize: 28,
-//                 fontWeight: "700",
-//                 color: "#1A1A1A",
-//                 marginBottom: 16,
-//                 textAlign: "center",
-//               }}
-//             >
-//               {slide.title}
-//             </Text>
-
-//             {/* Description */}
-//             <Text
-//               style={{
-//                 fontSize: 16,
-//                 color: "#6B7280",
-//                 textAlign: "center",
-//                 maxWidth: "90%",
-//                 lineHeight: 24,
-//               }}
-//             >
-//               {slide.description}
-//             </Text>
-//           </Animated.View>
-
-//           {/* Pagination Dots */}
-//           <View
-//             style={{
-//               flexDirection: "row",
-//               justifyContent: "center",
-//               marginBottom: 24,
-//               gap: 8,
-//               paddingHorizontal: 20,
-//             }}
-//           >
-//             {slides.slice(1).map((_, i) => {
-//               const dotIndex = i + 1;
-//               const active = dotIndex === index;
-//               return (
-//                 <View
-//                   key={i}
-//                   style={{
-//                     height: 8,
-//                     borderRadius: 4,
-//                     width: active ? 24 : 8,
-//                     backgroundColor: active ? "#70AD47" : "#E5E7EB",
-//                   }}
-//                 />
-//               );
-//             })}
-//           </View>
-
-//           {/* Next / Get Started Button */}
-//           <View style={{ paddingHorizontal: 20 }}>
-//             <TouchableOpacity
-//               style={{
-//                 backgroundColor: "#70AD47",
-//                 borderRadius: 20,
-//                 paddingVertical: 16,
-//                 alignItems: "center",
-//                 shadowColor: "#000",
-//                 shadowOpacity: 0.12,
-//                 shadowOffset: { width: 0, height: 4 },
-//                 shadowRadius: 8,
-//                 elevation: 3,
-//               }}
-//               onPress={goNext}
-//             >
-//               <Text
-//                 style={{ color: "#FFFFFF", fontSize: 16, fontWeight: "700" }}
-//               >
-//                 {index === slides.length - 1 ? "Get Started" : "Next"}
-//               </Text>
-//             </TouchableOpacity>
-//           </View>
-//         </Animated.View>
-//       </PanGestureHandler>
-//     </SafeAreaView>
-//   );
-// }
+      <Text
+        style={{
+          marginTop: 16,
+          fontSize: 14,
+          color: "#6B7280",
+        }}
+      >
+        {initialising ? "Checking session..." : "Loading..."}
+      </Text>
+    </View>
+  );
+}

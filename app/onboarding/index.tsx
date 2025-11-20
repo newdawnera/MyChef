@@ -184,7 +184,7 @@ export default function Onboarding() {
     return (
       <SafeAreaView
         style={{ flex: 1, backgroundColor: "#F8F9FA" }}
-        edges={["bottom"]}
+        edges={["top", "bottom"]}
       >
         <StatusBar barStyle="dark-content" />
         <View
@@ -270,7 +270,7 @@ export default function Onboarding() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: "#F8F9FA" }}
-      edges={["bottom"]}
+      edges={["top", "bottom"]}
     >
       <StatusBar barStyle="dark-content" />
 
