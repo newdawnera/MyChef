@@ -13,7 +13,6 @@ import {
   Platform,
   Image,
   Alert,
-  Switch, // 1. Import Switch
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -24,16 +23,13 @@ import {
   ChefHat,
   LogOut,
   ChevronRight,
-  ArrowLeft,
   Settings as SettingsIcon,
   X,
-  Camera,
+  Camera, // New icon for the avatar edit button
 } from "lucide-react-native";
 import { useTheme } from "@/contexts/ThemeContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
-import { useUser } from "@/contexts/UserContext";
+import * as ImagePicker from "expo-image-picker"; // Import ImagePicker
 
 const profileStats = [
   { label: "Recipes Saved", value: "24", icon: ChefHat },
@@ -43,17 +39,18 @@ const profileStats = [
 
 export default function ProfileScreen() {
   const { colors, theme } = useTheme();
-  const { name, email, avatar, updateProfile, updateAvatar } = useUser();
   const [showEditModal, setShowEditModal] = useState(false);
 
-  const [tempName, setTempName] = useState(name);
-  const [tempEmail, setTempEmail] = useState(email);
+  const [userName, setUserName] = useState("Sarah Johnson");
+  const [userEmail, setUserEmail] = useState("sarah.johnson@email.com");
+  const [userAvatar, setUserAvatar] = useState<string | null>(null); // State for avatar image
 
-  // 2. Define the state for the notification switch
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [tempName, setTempName] = useState(userName);
+  const [tempEmail, setTempEmail] = useState(userEmail);
 
   // Function to pick an image
   const pickImage = async () => {
+    // No permissions request is necessary for launching the image library
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -62,7 +59,7 @@ export default function ProfileScreen() {
     });
 
     if (!result.canceled) {
-      updateAvatar(result.assets[0].uri);
+      setUserAvatar(result.assets[0].uri);
     }
   };
 
@@ -73,85 +70,33 @@ export default function ProfileScreen() {
       value: "",
       action: () => setShowEditModal(true),
     },
-    // Removed "On" value since we are using a switch now
-    { icon: Bell, label: "Notifications", value: "", action: () => {} },
+    { icon: Bell, label: "Notifications", value: "On", action: () => {} },
     { icon: Lock, label: "Privacy", value: "", action: () => {} },
-    {
-      icon: SettingsIcon,
-      label: "Preferences",
-      value: "",
-      action: () => {
-        router.push("../preferences");
-      },
-    },
+    { icon: SettingsIcon, label: "Preferences", value: "", action: () => {} },
   ];
 
   const handleSaveProfile = () => {
-    updateProfile(tempName, tempEmail);
+    setUserName(tempName);
+    setUserEmail(tempEmail);
     setShowEditModal(false);
   };
 
   const handleCancelEdit = () => {
-    setTempName(name);
-    setTempEmail(email);
+    setTempName(userName);
+    setTempEmail(userEmail);
     setShowEditModal(false);
   };
 
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.cardBg }}
+      style={{ flex: 1, backgroundColor: colors.background }}
       edges={["top"]}
     >
       <StatusBar
         barStyle={theme === "dark" ? "light-content" : "dark-content"}
       />
 
-      {/* Header */}
-      <View
-        style={{
-          paddingVertical: 16,
-          paddingHorizontal: 20,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 12,
-          backgroundColor: colors.cardBg,
-          shadowColor: colors.shadow,
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 2,
-          zIndex: 1,
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: colors.background,
-            alignItems: "center",
-            justifyContent: "center",
-            borderWidth: 1,
-            borderColor: colors.border,
-          }}
-        >
-          <ArrowLeft size={20} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text
-          style={{ fontSize: 20, fontWeight: "600", color: colors.textPrimary }}
-        >
-          Profile
-        </Text>
-      </View>
-
-      <View
-        style={{
-          flex: 1,
-          paddingBottom: 80,
-          backgroundColor: colors.background,
-        }}
-      >
+      <View style={{ flex: 1, paddingBottom: 80 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
@@ -173,6 +118,7 @@ export default function ProfileScreen() {
                 borderColor: colors.border,
               }}
             >
+              {/* Interactive Avatar Section */}
               <TouchableOpacity
                 onPress={pickImage}
                 style={{
@@ -193,18 +139,19 @@ export default function ProfileScreen() {
                     shadowRadius: 12,
                     shadowOffset: { width: 0, height: 4 },
                     elevation: 4,
-                    overflow: "hidden",
+                    overflow: "hidden", // Ensure image stays in circle
                   }}
                 >
-                  {avatar ? (
+                  {userAvatar ? (
                     <Image
-                      source={{ uri: avatar }}
+                      source={{ uri: userAvatar }}
                       style={{ width: "100%", height: "100%" }}
                     />
                   ) : (
                     <User size={48} color="#FFFFFF" strokeWidth={1.5} />
                   )}
                 </View>
+                {/* Camera Icon Badge */}
                 <View
                   style={{
                     position: "absolute",
@@ -232,7 +179,7 @@ export default function ProfileScreen() {
                   marginBottom: 4,
                 }}
               >
-                {name}
+                {userName}
               </Text>
 
               <Text
@@ -242,7 +189,7 @@ export default function ProfileScreen() {
                   marginBottom: 20,
                 }}
               >
-                {email}
+                {userEmail}
               </Text>
 
               <TouchableOpacity
@@ -369,15 +316,7 @@ export default function ProfileScreen() {
             {settingsOptions.map((option, index) => (
               <TouchableOpacity
                 key={option.label}
-                // 3. Toggle switch on row press if it's the notification row
-                onPress={() => {
-                  if (option.label === "Notifications") {
-                    setNotificationsEnabled(!notificationsEnabled);
-                  } else {
-                    option.action();
-                  }
-                }}
-                activeOpacity={option.label === "Notifications" ? 1 : 0.7}
+                onPress={option.action}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -422,37 +361,18 @@ export default function ProfileScreen() {
                 >
                   {option.label}
                 </Text>
-
-                {/* 4. Conditional Rendering: Switch vs Arrow */}
-                {option.label === "Notifications" ? (
-                  <Switch
-                    trackColor={{ false: "#E5E7EB", true: colors.primary }} // Gray off, Green on
-                    thumbColor={"#FFFFFF"}
-                    ios_backgroundColor="#E5E7EB"
-                    onValueChange={setNotificationsEnabled}
-                    value={notificationsEnabled}
-                  />
-                ) : (
-                  <View
+                {option.value ? (
+                  <Text
                     style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
+                      fontSize: 14,
+                      color: colors.textSecondary,
+                      marginRight: 8,
                     }}
                   >
-                    {option.value ? (
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          color: colors.textSecondary,
-                        }}
-                      >
-                        {option.value}
-                      </Text>
-                    ) : null}
-                    <ChevronRight size={20} color={colors.textSecondary} />
-                  </View>
-                )}
+                    {option.value}
+                  </Text>
+                ) : null}
+                <ChevronRight size={20} color={colors.textSecondary} />
               </TouchableOpacity>
             ))}
           </View>
@@ -510,7 +430,7 @@ export default function ProfileScreen() {
         </ScrollView>
       </View>
 
-      {/* Edit Profile Modal */}
+      {/* Edit Profile Modal - Updated for Keyboard handling */}
       <Modal
         visible={showEditModal}
         transparent={true}

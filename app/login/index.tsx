@@ -1,4 +1,10 @@
 // app/login/index.tsx
+/**
+ * Login/Signup Screen - PRODUCTION VERSION
+ *
+ * Reduced console logging for better performance.
+ * Only logs important events (auth attempts, errors).
+ */
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -12,10 +18,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Mail, Lock, User, ChefHat } from "lucide-react-native";
 import { useRouter } from "expo-router";
+import { useAuth } from "@/hooks/useAuth";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -24,6 +33,9 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const { signUpWithEmail, signInWithEmail } = useAuth();
 
   // Animation refs
   const logoScaleAnim = useRef(new Animated.Value(1)).current;
@@ -54,13 +66,9 @@ export default function LoginScreen() {
 
   // Bi-directional slide-in transition when switching between login/signup
   useEffect(() => {
-    // Determine slide direction based on current mode
-    // When switching TO login: slide from left (form exits right, enters from left)
-    // When switching TO signup: slide from right (form exits left, enters from right)
-    const exitDirection = isLogin ? 300 : -300; // Exit to the right for login, left for signup
-    const enterDirection = isLogin ? -300 : 300; // Enter from the left for login, right for signup
+    const exitDirection = isLogin ? 300 : -300;
+    const enterDirection = isLogin ? -300 : 300;
 
-    // Step 1: Slide out with fade
     Animated.parallel([
       Animated.timing(formOpacity, {
         toValue: 0,
@@ -73,10 +81,8 @@ export default function LoginScreen() {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      // Step 2: Reset position to opposite side
       formTranslateX.setValue(enterDirection);
 
-      // Step 3: Slide in with fade
       Animated.parallel([
         Animated.timing(formOpacity, {
           toValue: 1,
@@ -93,18 +99,99 @@ export default function LoginScreen() {
     });
   }, [isLogin]);
 
-  const handleSubmit = () => {
-    router.replace("/home");
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const validatePassword = (password: string): boolean => {
+    return password.length >= 6;
+  };
+
+  const getErrorMessage = (errorCode: string): string => {
+    switch (errorCode) {
+      case "auth/email-already-in-use":
+        return "This email is already registered. Please login instead.";
+      case "auth/invalid-email":
+        return "Please enter a valid email address.";
+      case "auth/weak-password":
+        return "Password should be at least 6 characters.";
+      case "auth/user-not-found":
+        return "No account found with this email.";
+      case "auth/wrong-password":
+        return "Incorrect password. Please try again.";
+      case "auth/too-many-requests":
+        return "Too many failed attempts. Please try again later.";
+      case "auth/network-request-failed":
+        return "Network error. Please check your connection.";
+      case "auth/invalid-credential":
+        return "Invalid email or password / account not found. Please try again.";
+      default:
+        return `Authentication error: ${errorCode}`;
+    }
+  };
+
+  const handleSubmit = async () => {
+    // Validation
+    if (!email.trim()) {
+      Alert.alert("Required Field", "Please enter your email address.");
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      Alert.alert("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+
+    if (!password.trim()) {
+      Alert.alert("Required Field", "Please enter your password.");
+      return;
+    }
+
+    if (!validatePassword(password)) {
+      Alert.alert(
+        "Weak Password",
+        "Password must be at least 6 characters long."
+      );
+      return;
+    }
+
+    if (!isLogin && !name.trim()) {
+      Alert.alert("Required Field", "Please enter your name.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      if (isLogin) {
+        console.log("🔐 Attempting login...");
+        await signInWithEmail(email.trim(), password);
+        // Navigation handled by app/index.tsx
+      } else {
+        console.log("📝 Attempting signup...");
+        await signUpWithEmail(email.trim(), password);
+        // Navigation handled by app/index.tsx
+      }
+      router.replace("/(tabs)");
+    } catch (error: any) {
+      console.error("❌ Auth error:", error.code);
+      const errorMessage = getErrorMessage(error.code);
+      Alert.alert(isLogin ? "Login Failed" : "Sign Up Failed", errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleTabSwitch = (loginMode: boolean) => {
+    if (loading) return;
     setIsLogin(loginMode);
   };
 
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: "#F8F9FA" }}
-      edges={["bottom"]}
+      edges={["top", "bottom"]}
     >
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
       <KeyboardAvoidingView
@@ -128,7 +215,6 @@ export default function LoginScreen() {
           >
             <Animated.View
               style={{
-                // This container just handles layout and scaling
                 width: 64,
                 height: 64,
                 marginBottom: 12,
@@ -137,25 +223,20 @@ export default function LoginScreen() {
                 transform: [{ scale: logoScaleAnim }],
               }}
             >
-              {/* Layer 1: The "Glow" (Casts the shadow) */}
-              {/* This View is *only* for casting the shadow. */}
-              {/* It must have a background color to cast from. */}
               <View
                 style={{
                   width: 64,
                   height: 64,
                   borderRadius: 32,
-                  backgroundColor: "white", // Can be any color, needed to cast shadow
+                  backgroundColor: "white",
                   shadowColor: "#4CAF50",
-                  shadowOpacity: 0.7, // Set your desired glow opacity
+                  shadowOpacity: 0.7,
                   shadowOffset: { width: 0, height: 0 },
-                  shadowRadius: 25, // Set your desired glow radius
-                  elevation: 8, // For Android
-                  position: "absolute", // Place behind content
+                  shadowRadius: 25,
+                  elevation: 8,
+                  position: "absolute",
                 }}
               />
-
-              {/* Layer 2: The Content (Sits on top) */}
               <View
                 style={{
                   width: 64,
@@ -164,8 +245,8 @@ export default function LoginScreen() {
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: "rgba(76, 175, 80, 0.1)",
-                  overflow: "hidden", // Clip the icon/background
-                  position: "absolute", // Sit on top of shadow layer
+                  overflow: "hidden",
+                  position: "absolute",
                 }}
               >
                 <ChefHat size={32} color="#4CAF50" strokeWidth={1.5} />
@@ -210,6 +291,7 @@ export default function LoginScreen() {
             <TouchableOpacity
               onPress={() => handleTabSwitch(true)}
               activeOpacity={0.8}
+              disabled={loading}
               style={{
                 flex: 1,
                 paddingVertical: 12,
@@ -222,6 +304,7 @@ export default function LoginScreen() {
                 shadowOffset: { width: 0, height: 2 },
                 shadowRadius: 8,
                 elevation: isLogin ? 4 : 0,
+                opacity: loading ? 0.5 : 1,
               }}
             >
               <Text
@@ -237,6 +320,7 @@ export default function LoginScreen() {
             <TouchableOpacity
               onPress={() => handleTabSwitch(false)}
               activeOpacity={0.8}
+              disabled={loading}
               style={{
                 flex: 1,
                 paddingVertical: 12,
@@ -249,6 +333,7 @@ export default function LoginScreen() {
                 shadowOffset: { width: 0, height: 2 },
                 shadowRadius: 8,
                 elevation: !isLogin ? 4 : 0,
+                opacity: loading ? 0.5 : 1,
               }}
             >
               <Text
@@ -263,12 +348,11 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Form with Bi-directional Slide Animation */}
+          {/* Form */}
           <Animated.View
             style={{
               opacity: formOpacity,
               transform: [{ translateX: formTranslateX }],
-              flex: 1,
             }}
           >
             {/* Name Field - Only for Sign Up */}
@@ -302,6 +386,7 @@ export default function LoginScreen() {
                     placeholderTextColor="#9CA3AF"
                     value={name}
                     onChangeText={setName}
+                    editable={!loading}
                     style={{
                       flex: 1,
                       fontSize: 16,
@@ -343,8 +428,10 @@ export default function LoginScreen() {
                   placeholderTextColor="#9CA3AF"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoComplete="email"
                   value={email}
                   onChangeText={setEmail}
+                  editable={!loading}
                   style={{
                     flex: 1,
                     fontSize: 16,
@@ -384,8 +471,10 @@ export default function LoginScreen() {
                   placeholder="Enter your password"
                   placeholderTextColor="#9CA3AF"
                   secureTextEntry
+                  autoComplete={isLogin ? "password" : "password-new"}
                   value={password}
                   onChangeText={setPassword}
+                  editable={!loading}
                   style={{
                     flex: 1,
                     fontSize: 16,
@@ -394,16 +483,37 @@ export default function LoginScreen() {
                   }}
                 />
               </View>
+              {!isLogin && (
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: "#6B7280",
+                    marginTop: 4,
+                    marginLeft: 4,
+                  }}
+                >
+                  Minimum 6 characters
+                </Text>
+              )}
             </View>
 
             {/* Forgot Password - Only for Login */}
             {isLogin && (
               <View style={{ alignItems: "flex-end", marginBottom: 24 }}>
-                <TouchableOpacity onPress={() => {}} activeOpacity={0.7}>
+                <TouchableOpacity
+                  onPress={() => {
+                    Alert.alert(
+                      "Reset Password",
+                      "Password reset functionality will be added in a future update."
+                    );
+                  }}
+                  activeOpacity={0.7}
+                  disabled={loading}
+                >
                   <Text
                     style={{
                       fontSize: 16,
-                      color: "#4CAF50",
+                      color: loading ? "#9CA3AF" : "#4CAF50",
                       fontWeight: "400",
                     }}
                   >
@@ -416,30 +526,47 @@ export default function LoginScreen() {
             {/* Main Submit Button */}
             <TouchableOpacity
               style={{
-                backgroundColor: "#4CAF50",
+                backgroundColor: loading ? "#9CA3AF" : "#4CAF50",
                 borderRadius: 16,
                 paddingVertical: 16,
                 alignItems: "center",
                 justifyContent: "center",
-                marginTop: isLogin ? 0 : 0,
-                shadowColor: "#4CAF50",
+                shadowColor: loading ? "#9CA3AF" : "#4CAF50",
                 shadowOpacity: 0.4,
                 shadowOffset: { width: 0, height: 4 },
                 shadowRadius: 12,
                 elevation: 8,
+                flexDirection: "row",
               }}
               onPress={handleSubmit}
               activeOpacity={0.9}
+              disabled={loading}
             >
-              <Text
-                style={{
-                  color: "#FFFFFF",
-                  fontSize: 16,
-                  fontWeight: "600",
-                }}
-              >
-                {isLogin ? "Login" : "Sign Up"}
-              </Text>
+              {loading ? (
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text
+                    style={{
+                      color: "#FFFFFF",
+                      fontSize: 16,
+                      fontWeight: "600",
+                      marginLeft: 8,
+                    }}
+                  >
+                    {isLogin ? "Logging in..." : "Creating account..."}
+                  </Text>
+                </>
+              ) : (
+                <Text
+                  style={{
+                    color: "#FFFFFF",
+                    fontSize: 16,
+                    fontWeight: "600",
+                  }}
+                >
+                  {isLogin ? "Login" : "Sign Up"}
+                </Text>
+              )}
             </TouchableOpacity>
 
             {/* Or continue with */}
@@ -473,8 +600,16 @@ export default function LoginScreen() {
                   justifyContent: "center",
                   borderWidth: 1,
                   borderColor: "#E5E7EB",
+                  opacity: loading ? 0.5 : 1,
                 }}
                 activeOpacity={0.7}
+                disabled={loading}
+                onPress={() => {
+                  Alert.alert(
+                    "Coming Soon",
+                    "Google sign-in will be available in the next update!"
+                  );
+                }}
               >
                 <Text
                   style={{
@@ -496,8 +631,16 @@ export default function LoginScreen() {
                   justifyContent: "center",
                   borderWidth: 1,
                   borderColor: "#E5E7EB",
+                  opacity: loading ? 0.5 : 1,
                 }}
                 activeOpacity={0.7}
+                disabled={loading}
+                onPress={() => {
+                  Alert.alert(
+                    "Coming Soon",
+                    "Facebook sign-in will be available in the next update!"
+                  );
+                }}
               >
                 <Text
                   style={{
