@@ -23,8 +23,8 @@ import {
   SPACING,
   SHADOWS,
   COLORS as STATIC_COLORS,
-} from "@/constants/categories"; // Renamed to avoid conflict
-import { useTheme } from "@/contexts/ThemeContext"; // 1. Import Theme Hook
+} from "@/constants/categories";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface Recipe {
   id: number;
@@ -48,7 +48,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
   cardWidth,
   onPress,
 }) => {
-  const { colors } = useTheme(); // 2. Use theme colors inside card
+  const { colors } = useTheme();
 
   const getCalories = () => {
     const calorieNutrient = recipe.nutrition?.nutrients.find(
@@ -72,13 +72,13 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
       {({ pressed }) => (
         <View
           style={{
-            backgroundColor: colors.cardBg, // Dynamic Card BG
+            backgroundColor: colors.cardBg,
             borderRadius: SPACING.borderRadius,
             overflow: "hidden",
             ...SHADOWS.card,
-            shadowColor: colors.shadow, // Dynamic Shadow
+            shadowColor: colors.shadow,
             borderWidth: 1,
-            borderColor: colors.border, // Dynamic Border
+            borderColor: colors.border,
             opacity: pressed ? 0.7 : 1,
             transform: [{ scale: pressed ? 0.98 : 1 }],
           }}
@@ -100,7 +100,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
               style={{
                 fontSize: 15,
                 fontWeight: "600",
-                color: colors.textPrimary, // Dynamic Text
+                color: colors.textPrimary,
                 marginBottom: 8,
               }}
               numberOfLines={2}
@@ -114,7 +114,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
               <Text
                 style={{
                   fontSize: 13,
-                  color: colors.textSecondary, // Dynamic Secondary Text
+                  color: colors.textSecondary,
                   marginLeft: 4,
                 }}
               >
@@ -154,11 +154,11 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
 
 // Main Category Results Screen
 export default function CategoryResultsScreen() {
-  const { colors, theme } = useTheme(); // 3. Get Theme context
+  const { colors, theme } = useTheme();
   const params = useLocalSearchParams();
   const { category, label, query, color } = params;
 
-  // Determine the header color (Dynamic from params or fallback to theme primary)
+  // Determine the header color
   const headerColor = (color as string) || colors.primary;
 
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -182,11 +182,11 @@ export default function CategoryResultsScreen() {
 
     // Grid layout
     if (width < 375) {
-      return "100%"; // Single column for very small screens
+      return "100%";
     } else if (width < 768) {
-      return "48%"; // 2 columns for phones
+      return "48%";
     } else {
-      return "31%"; // 3 columns for tablets
+      return "31%";
     }
   };
 
@@ -225,15 +225,18 @@ export default function CategoryResultsScreen() {
         setLoading(true);
       }
 
-      // Replace with your Spoonacular API key
       const API_KEY = process.env.EXPO_PUBLIC_SPOONACULAR_API_KEY;
       const response = await fetch(
         `https://api.spoonacular.com/recipes/complexSearch?query=${query}&number=20&addRecipeNutrition=true&apiKey=${API_KEY}`
       );
       const data = await response.json();
       setRecipes(data.results || []);
+
+      console.log(
+        `✅ Loaded ${data.results?.length || 0} recipes for category: ${label}`
+      );
     } catch (error) {
-      console.error("Error fetching recipes:", error);
+      console.error("❌ Error fetching recipes:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -248,25 +251,26 @@ export default function CategoryResultsScreen() {
     setLayoutType((prev) => (prev === "grid" ? "list" : "grid"));
   };
 
+  // ✅ FIXED: Changed param name from "recipeId" to "id"
   const handleRecipePress = (recipeId: number) => {
+    console.log("📝 Opening recipe with ID:", recipeId);
     router.push({
       pathname: "/recipes/details",
-      params: { recipeId },
+      params: { id: recipeId }, // ✅ Fixed: Use "id" to match details screen
     });
   };
 
   return (
-    // 4. Apply header color to SafeAreaView to stretch it upwards
     <SafeAreaView
       style={{ flex: 1, backgroundColor: headerColor }}
-      edges={["top"]} // Only pad top (status bar)
+      edges={["top"]}
     >
       <StatusBar barStyle="light-content" />
 
       {/* Header with Category Banner */}
       <View
         style={{
-          backgroundColor: headerColor, // Matches SafeAreaView
+          backgroundColor: headerColor,
           paddingHorizontal: SPACING.containerPadding,
           paddingTop: 16,
           paddingBottom: 20,
@@ -277,7 +281,7 @@ export default function CategoryResultsScreen() {
           shadowOpacity: 0.1,
           shadowRadius: 8,
           elevation: 4,
-          zIndex: 1, // Ensure it sits on top of content
+          zIndex: 1,
         }}
       >
         <View
@@ -346,7 +350,7 @@ export default function CategoryResultsScreen() {
         </View>
       </View>
 
-      {/* 5. Content Wrapper with Theme Background Color */}
+      {/* Content Wrapper */}
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <ScrollView
           style={{ flex: 1 }}
@@ -423,7 +427,7 @@ export default function CategoryResultsScreen() {
           )}
         </ScrollView>
 
-        {/* Floating Action Info (Optional) */}
+        {/* Floating Action Info */}
         {!loading && recipes.length > 0 && (
           <View
             style={{
