@@ -1,6 +1,12 @@
-// app/recipes/details.tsx
+// app/recipes/details.tsx - WITH RECENT RECIPES TRACKING
+/**
+ * This screen now:
+ * 1. Fetches real recipe data from Spoonacular
+ * 2. Adds recipe to recent recipes when viewed
+ * 3. Shows full recipe details with nutrition
+ */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,8 +14,9 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
-// 1. Import useSafeAreaInsets
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -23,55 +30,158 @@ import {
   Users,
   ChefHat,
 } from "lucide-react-native";
-import { useRouter } from "expo-router";
-
-const recipe = {
-  image:
-    "https://images.unsplash.com/photo-1712579733874-c3a79f0f9d12?auto=format&fit=crop&w=800&q=80",
-  title: "Grilled Chicken with Herbs",
-  time: "35 min",
-  calories: 420,
-  servings: 2,
-  difficulty: "Easy",
-  description:
-    "Juicy grilled chicken marinated in fresh herbs and spices. Perfect for a healthy dinner.",
-  ingredients: [
-    "2 chicken breasts",
-    "2 tbsp olive oil",
-    "1 tbsp fresh rosemary",
-    "1 tbsp fresh thyme",
-    "3 cloves garlic, minced",
-    "1 lemon, juiced",
-    "Salt and pepper to taste",
-  ],
-  instructions: [
-    "Mix olive oil, herbs, garlic, and lemon juice in a bowl",
-    "Marinate chicken breasts for at least 30 minutes",
-    "Preheat grill to medium-high heat",
-    "Grill chicken for 6-7 minutes per side",
-    "Let rest for 5 minutes before serving",
-    "Garnish with fresh herbs and serve hot",
-  ],
-  nutrition: [
-    { label: "Protein", value: "42g", color: "#70AD47" },
-    { label: "Carbs", value: "8g", color: "#FF9500" },
-    { label: "Fat", value: "18g", color: "#FF6B6B" },
-    { label: "Fiber", value: "2g", color: "#70AD47" },
-  ],
-};
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useRecentRecipes } from "@/hooks/useRecentRecipes";
+import { getRecipeDetails } from "@/services/spoonacularServices";
+import { SpoonacularRecipe, calculateDifficulty } from "@/types/recipe";
 
 export default function RecipeDetailsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const { colors, theme } = useTheme();
+  const { bottom } = useSafeAreaInsets();
+
+  // Get recipe context
+  const { addRecentRecipe } = useRecentRecipes();
+
+  // State
+  const [recipe, setRecipe] = useState<SpoonacularRecipe | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<"ingredients" | "instructions">(
     "ingredients"
   );
-  // 2. Call the hook to get the bottom inset
-  const { bottom } = useSafeAreaInsets();
+
+  // Get recipe ID from params
+  const recipeId = parseInt(params.id as string);
+
+  /**
+   * Load recipe details on mount
+   */
+  useEffect(() => {
+    if (recipeId) {
+      loadRecipeDetails();
+    }
+  }, [recipeId]);
+
+  /**
+   * Load full recipe details from Spoonacular
+   */
+  const loadRecipeDetails = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log("📄 Loading recipe details:", recipeId);
+
+      const recipeData = await getRecipeDetails(recipeId);
+      setRecipe(recipeData);
+
+      // Add to recent recipes
+      await addRecentRecipe(recipeData);
+
+      console.log("✅ Recipe loaded:", recipeData.title);
+    } catch (err) {
+      console.error("❌ Failed to load recipe:", err);
+      setError(err instanceof Error ? err.message : "Failed to load recipe");
+      Alert.alert("Error", "Failed to load recipe details. Please try again.", [
+        { text: "Go Back", onPress: () => router.back() },
+        { text: "Retry", onPress: loadRecipeDetails },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Handle save/unsave recipe
+   */
+  const handleSave = () => {
+    setIsSaved(!isSaved);
+    // TODO: Implement save to Firestore
+  };
+
+  /**
+   * Handle share recipe
+   */
+  const handleShare = () => {
+    // TODO: Implement share functionality
+    Alert.alert("Share", "Share functionality coming soon!");
+  };
+
+  // Loading State
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <StatusBar
+          barStyle={theme === "dark" ? "light-content" : "dark-content"}
+        />
+        <View
+          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+        >
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text
+            style={{ marginTop: 16, fontSize: 16, color: colors.textSecondary }}
+          >
+            Loading recipe...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Error State
+  if (error || !recipe) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <StatusBar
+          barStyle={theme === "dark" ? "light-content" : "dark-content"}
+        />
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={{ padding: 20 }}>
+            <TouchableOpacity onPress={() => router.back()}>
+              <ArrowLeft size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "600",
+                color: colors.textPrimary,
+                marginBottom: 8,
+              }}
+            >
+              Recipe Not Found
+            </Text>
+            <Text
+              style={{
+                fontSize: 14,
+                color: colors.textSecondary,
+                textAlign: "center",
+              }}
+            >
+              {error || "Unable to load recipe details"}
+            </Text>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  const difficulty = calculateDifficulty(recipe);
 
   return (
-    // 3. Change background color to white
-    <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+    <View style={{ flex: 1, backgroundColor: colors.cardBg }}>
       <StatusBar barStyle="light-content" />
 
       {/* Hero Image */}
@@ -82,22 +192,9 @@ export default function RecipeDetailsScreen() {
           resizeMode="cover"
         />
 
-        {/* Gradient Overlay */}
-        <View
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: "70%",
-            // A subtle gradient is often cleaner than a solid block
-            backgroundColor:
-              "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 100%)",
-          }}
-        />
-
         {/* Header Actions */}
         <SafeAreaView
+          edges={["top"]}
           style={{
             position: "absolute",
             top: 0,
@@ -105,11 +202,9 @@ export default function RecipeDetailsScreen() {
             right: 0,
             flexDirection: "row",
             justifyContent: "space-between",
-            alignItems: "center",
             paddingHorizontal: 20,
-            paddingTop: 10,
+            paddingTop: 8,
           }}
-          edges={["bottom"]}
         >
           <TouchableOpacity
             onPress={() => router.back()}
@@ -117,337 +212,264 @@ export default function RecipeDetailsScreen() {
               width: 44,
               height: 44,
               borderRadius: 22,
-              backgroundColor: "rgba(255, 255, 255, 0.95)",
+              backgroundColor: "rgba(255, 255, 255, 0.9)",
               alignItems: "center",
               justifyContent: "center",
               shadowColor: "#000",
-              shadowOpacity: 0.2,
+              shadowOpacity: 0.1,
               shadowRadius: 8,
               shadowOffset: { width: 0, height: 2 },
               elevation: 4,
             }}
           >
-            <ArrowLeft size={22} color="#1A1A1A" />
+            <ArrowLeft size={20} color="#1A1A1A" />
           </TouchableOpacity>
 
           <View style={{ flexDirection: "row", gap: 12 }}>
             <TouchableOpacity
+              onPress={handleSave}
               style={{
                 width: 44,
                 height: 44,
                 borderRadius: 22,
-                backgroundColor: "rgba(255, 255, 255, 0.95)",
+                backgroundColor: "rgba(255, 255, 255, 0.9)",
                 alignItems: "center",
                 justifyContent: "center",
                 shadowColor: "#000",
-                shadowOpacity: 0.2,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 4,
-              }}
-            >
-              <Share2 size={22} color="#1A1A1A" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setIsSaved(!isSaved)}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: "rgba(255, 255, 255, 0.95)",
-                alignItems: "center",
-                justifyContent: "center",
-                shadowColor: "#000",
-                shadowOpacity: 0.2,
+                shadowOpacity: 0.1,
                 shadowRadius: 8,
                 shadowOffset: { width: 0, height: 2 },
                 elevation: 4,
               }}
             >
               <Heart
-                size={22}
+                size={20}
                 color={isSaved ? "#FF6B6B" : "#1A1A1A"}
-                fill={isSaved ? "#FF6B6B" : "transparent"}
+                fill={isSaved ? "#FF6B6B" : "none"}
               />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleShare}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: "rgba(255, 255, 255, 0.9)",
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: "#000",
+                shadowOpacity: 0.1,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 4,
+              }}
+            >
+              <Share2 size={20} color="#1A1A1A" />
             </TouchableOpacity>
           </View>
         </SafeAreaView>
+      </View>
 
-        {/* Title & Stats */}
-        <View
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            paddingHorizontal: 20,
-            paddingBottom: 20,
-          }}
-        >
+      {/* Recipe Content */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: bottom + 20 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Recipe Header */}
+        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
           <Text
             style={{
               fontSize: 28,
               fontWeight: "700",
-              color: "#FFFFFF",
+              color: colors.textPrimary,
               marginBottom: 12,
             }}
           >
             {recipe.title}
           </Text>
 
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+          {/* Meta Info */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 16,
+              marginBottom: 20,
+            }}
+          >
             <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
             >
-              <Clock size={16} color="#FFFFFF" />
-              <Text style={{ fontSize: 14, color: "#FFFFFF" }}>
-                {recipe.time}
+              <Clock size={18} color={colors.textSecondary} />
+              <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                {recipe.readyInMinutes} min
               </Text>
             </View>
 
             <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
             >
-              <Flame size={16} color="#FFFFFF" />
-              <Text style={{ fontSize: 14, color: "#FFFFFF" }}>
-                {recipe.calories} cal
-              </Text>
-            </View>
-
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-            >
-              <Users size={16} color="#FFFFFF" />
-              <Text style={{ fontSize: 14, color: "#FFFFFF" }}>
+              <Users size={18} color={colors.textSecondary} />
+              <Text style={{ fontSize: 14, color: colors.textSecondary }}>
                 {recipe.servings} servings
               </Text>
             </View>
 
             <View
-              style={{
-                backgroundColor: "rgba(255, 255, 255, 0.95)",
-                paddingHorizontal: 12,
-                paddingVertical: 4,
-                borderRadius: 12,
-              }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
             >
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: "#FF9500",
-                  fontWeight: "600",
-                }}
-              >
-                {recipe.difficulty}
+              <ChefHat size={18} color={colors.textSecondary} />
+              <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                {difficulty}
               </Text>
             </View>
-          </View>
-        </View>
-      </View>
 
-      {/* Content */}
-      <ScrollView
-        style={{ flex: 1 }}
-        // 4. Adjust ScrollView padding
-        contentContainerStyle={{ paddingBottom: 110 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-          {/* Description */}
-          <Text
-            style={{
-              fontSize: 15,
-              color: "#6B7280",
-              lineHeight: 22,
-              marginBottom: 20,
-            }}
-          >
-            {recipe.description}
-          </Text>
-
-          {/* Nutrition Cards */}
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              marginBottom: 24,
-              gap: 12,
-            }}
-          >
-            {recipe.nutrition.map((item, index) => (
+            {recipe.healthScore && (
               <View
-                key={item.label}
-                style={{
-                  flex: 1,
-                  backgroundColor: "#FFFFFF",
-                  borderRadius: 16,
-                  padding: 12,
-                  alignItems: "center",
-                  shadowColor: "#000",
-                  shadowOpacity: 0.05,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 2,
-                  // Using a subtle border
-                  borderWidth: 1,
-                  borderColor: "#F3F4F6",
-                }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
               >
-                <Text
-                  style={{
-                    fontSize: 18,
-                    fontWeight: "700",
-                    color: "#1A1A1A",
-                    marginBottom: 4,
-                  }}
-                >
-                  {item.value}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: "#6B7280",
-                  }}
-                >
-                  {item.label}
+                <Flame size={18} color={colors.textSecondary} />
+                <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                  {Math.round(recipe.healthScore)}%
                 </Text>
               </View>
-            ))}
+            )}
           </View>
 
-          {/* Tabs */}
-          <View
+          {/* Description */}
+          {recipe.summary && (
+            <Text
+              style={{
+                fontSize: 15,
+                color: colors.textSecondary,
+                lineHeight: 22,
+                marginBottom: 24,
+              }}
+            >
+              {recipe.summary.replace(/<[^>]*>/g, "")} {/* Remove HTML tags */}
+            </Text>
+          )}
+        </View>
+
+        {/* Tabs */}
+        <View
+          style={{
+            flexDirection: "row",
+            paddingHorizontal: 20,
+            marginBottom: 20,
+            gap: 12,
+          }}
+        >
+          <TouchableOpacity
+            onPress={() => setActiveTab("ingredients")}
             style={{
-              backgroundColor: "#FFFFFF",
-              borderRadius: 16,
-              padding: 4,
-              flexDirection: "row",
-              marginBottom: 20,
-              shadowColor: "#000",
-              shadowOpacity: 0.05,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
+              flex: 1,
+              paddingVertical: 12,
+              borderRadius: 12,
+              backgroundColor:
+                activeTab === "ingredients"
+                  ? colors.primary
+                  : colors.background,
+              alignItems: "center",
             }}
           >
-            <TouchableOpacity
-              onPress={() => setActiveTab("ingredients")}
+            <Text
               style={{
-                flex: 1,
-                paddingVertical: 12,
-                borderRadius: 12,
-                alignItems: "center",
-                backgroundColor:
-                  activeTab === "ingredients" ? "#70AD47" : "transparent",
-                shadowColor:
-                  activeTab === "ingredients" ? "#70AD47" : "transparent",
-                shadowOpacity: activeTab === "ingredients" ? 0.3 : 0,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: activeTab === "ingredients" ? 3 : 0,
+                fontSize: 15,
+                fontWeight: "600",
+                color:
+                  activeTab === "ingredients"
+                    ? "#FFFFFF"
+                    : colors.textSecondary,
               }}
             >
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "600",
-                  color: activeTab === "ingredients" ? "#FFFFFF" : "#6B7280",
-                }}
-              >
-                Ingredients
-              </Text>
-            </TouchableOpacity>
+              Ingredients
+            </Text>
+          </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => setActiveTab("instructions")}
+          <TouchableOpacity
+            onPress={() => setActiveTab("instructions")}
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              borderRadius: 12,
+              backgroundColor:
+                activeTab === "instructions"
+                  ? colors.primary
+                  : colors.background,
+              alignItems: "center",
+            }}
+          >
+            <Text
               style={{
-                flex: 1,
-                paddingVertical: 12,
-                borderRadius: 12,
-                alignItems: "center",
-                backgroundColor:
-                  activeTab === "instructions" ? "#70AD47" : "transparent",
-                shadowColor:
-                  activeTab === "instructions" ? "#70AD47" : "transparent",
-                shadowOpacity: activeTab === "instructions" ? 0.3 : 0,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: activeTab === "instructions" ? 3 : 0,
+                fontSize: 15,
+                fontWeight: "600",
+                color:
+                  activeTab === "instructions"
+                    ? "#FFFFFF"
+                    : colors.textSecondary,
               }}
             >
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "600",
-                  color: activeTab === "instructions" ? "#FFFFFF" : "#6B7280",
-                }}
-              >
-                Instructions
-              </Text>
-            </TouchableOpacity>
-          </View>
+              Instructions
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-          {/* Tab Content */}
-          {activeTab === "ingredients" ? (
-            <View style={{ gap: 12 }}>
-              {recipe.ingredients.map((ingredient, index) => (
+        {/* Tab Content */}
+        {activeTab === "ingredients" ? (
+          <View style={{ paddingHorizontal: 20 }}>
+            {recipe.extendedIngredients &&
+            recipe.extendedIngredients.length > 0 ? (
+              recipe.extendedIngredients.map((ingredient, index) => (
                 <View
                   key={index}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 12,
-                    backgroundColor: "#FFFFFF",
-                    padding: 16,
-                    borderRadius: 16,
-                    shadowColor: "#000",
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 2 },
-                    elevation: 2,
-                    borderWidth: 1,
-                    borderColor: "#F3F4F6",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: colors.border,
                   }}
                 >
                   <View
                     style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: "#70AD47",
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: colors.primary,
+                      marginRight: 12,
                     }}
                   />
                   <Text
                     style={{
-                      fontSize: 15,
-                      color: "#1A1A1A",
                       flex: 1,
+                      fontSize: 15,
+                      color: colors.textPrimary,
                     }}
                   >
-                    {ingredient}
+                    {ingredient.original}
                   </Text>
                 </View>
-              ))}
-            </View>
-          ) : (
-            <View style={{ gap: 16 }}>
-              {recipe.instructions.map((instruction, index) => (
+              ))
+            ) : (
+              <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                No ingredients available
+              </Text>
+            )}
+          </View>
+        ) : (
+          <View style={{ paddingHorizontal: 20 }}>
+            {recipe.analyzedInstructions &&
+            recipe.analyzedInstructions.length > 0 &&
+            recipe.analyzedInstructions[0].steps ? (
+              recipe.analyzedInstructions[0].steps.map((step, index) => (
                 <View
                   key={index}
                   style={{
                     flexDirection: "row",
-                    gap: 16,
-                    backgroundColor: "#FFFFFF",
-                    padding: 16,
-                    borderRadius: 16,
-                    shadowColor: "#000",
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 2 },
-                    elevation: 2,
-                    borderWidth: 1,
-                    borderColor: "#F3F4F6",
+                    marginBottom: 20,
                   }}
                 >
                   <View
@@ -455,82 +477,52 @@ export default function RecipeDetailsScreen() {
                       width: 32,
                       height: 32,
                       borderRadius: 16,
-                      backgroundColor: "#70AD4710",
+                      backgroundColor: colors.primary,
                       alignItems: "center",
                       justifyContent: "center",
-                      borderWidth: 1,
-                      borderColor: "#70AD4720",
+                      marginRight: 12,
                     }}
                   >
                     <Text
                       style={{
                         fontSize: 14,
-                        fontWeight: "600",
-                        color: "#70AD47",
+                        fontWeight: "700",
+                        color: "#FFFFFF",
                       }}
                     >
-                      {index + 1}
+                      {step.number}
                     </Text>
                   </View>
                   <Text
                     style={{
                       flex: 1,
                       fontSize: 15,
-                      color: "#1A1A1A",
+                      color: colors.textPrimary,
                       lineHeight: 22,
                     }}
                   >
-                    {instruction}
+                    {step.step}
                   </Text>
                 </View>
-              ))}
-            </View>
-          )}
-        </View>
+              ))
+            ) : recipe.instructions ? (
+              <Text
+                style={{
+                  fontSize: 15,
+                  color: colors.textPrimary,
+                  lineHeight: 22,
+                }}
+              >
+                {recipe.instructions.replace(/<[^>]*>/g, "")}
+              </Text>
+            ) : (
+              <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                No instructions available
+              </Text>
+            )}
+          </View>
+        )}
       </ScrollView>
-
-      {/* Start Cooking Button */}
-      {/* 5. This is the main fix for the button */}
-      <View
-        style={{
-          position: "absolute",
-          // Use the safe area inset, with a 10px fallback
-          bottom: bottom || 10,
-          // Inset the button from the screen edges
-          left: 20,
-          right: 20,
-          // Make the background transparent
-          backgroundColor: "transparent",
-        }}
-      >
-        <TouchableOpacity
-          style={{
-            backgroundColor: "#70AD47",
-            paddingVertical: 16,
-            borderRadius: 20,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            shadowColor: "#70AD47",
-            shadowOpacity: 0.4,
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 6,
-          }}
-        >
-          <ChefHat size={22} color="#FFFFFF" />
-          <Text
-            style={{
-              fontSize: 17,
-              fontWeight: "700",
-              color: "#FFFFFF",
-            }}
-          >
-            Start Cooking
-          </Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }

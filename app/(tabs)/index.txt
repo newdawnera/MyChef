@@ -1,21 +1,21 @@
-// app/(tabs)/index.tsx - Enhanced Home Screen with AI Search
+// app/(tabs)/index.tsx - WITH DARK MODE SUPPORT
 import React, { useState, useRef } from "react";
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
+  Image,
   ScrollView,
   StatusBar,
   Animated,
   Pressable,
   FlatList,
-  Image,
-  Alert,
-  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import {
+  Search,
   Sparkles,
   ChevronRight,
   ChevronDown,
@@ -26,8 +26,26 @@ import {
 } from "lucide-react-native";
 import { useTheme } from "@/contexts/ThemeContext";
 import { CATEGORIES, SPACING } from "@/constants/categories";
-import { EnhancedSearchBar } from "@/components/EnhancedSearchBar";
-import { useRecentRecipes } from "@/hooks/useRecentRecipes";
+
+const recentRecipes = [
+  {
+    id: 1,
+    image:
+      "https://images.unsplash.com/photo-1574665619640-df774e5f01bb?auto=format&fit=crop&w=800&q=80",
+    title: "Buddha Bowl",
+    time: "25 min",
+    calories: "350 cal",
+  },
+  {
+    id: 2,
+    image:
+      "https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?auto=format&fit=crop&w=800&q=80",
+    title: "Creamy Pasta",
+    time: "30 min",
+    calories: "520 cal",
+  },
+  // ... rest of recipes
+];
 
 // Category Carousel Item Component
 interface CategoryCarouselItemProps {
@@ -116,7 +134,7 @@ const CategoryCarouselItem = React.memo(CategoryCarouselItemComponent);
 
 // Recipe Card Component
 interface RecipeCardProps {
-  recipe: any;
+  recipe: (typeof recentRecipes)[0];
   onPress: () => void;
 }
 
@@ -176,7 +194,7 @@ const RecipeCardComponent: React.FC<RecipeCardProps> = ({
               marginLeft: 4,
             }}
           >
-            {recipe.readyInMinutes || recipe.time} min
+            {recipe.time}
           </Text>
           <Text
             style={{
@@ -195,7 +213,7 @@ const RecipeCardComponent: React.FC<RecipeCardProps> = ({
               marginLeft: 4,
             }}
           >
-            {recipe.calories || "N/A"} cal
+            {recipe.calories}
           </Text>
         </View>
       </View>
@@ -209,37 +227,14 @@ const RecipeCard = React.memo(RecipeCardComponent);
 export default function HomeScreen() {
   const { colors, theme } = useTheme();
   const [search, setSearch] = useState("");
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [allItemsShowing, setAllItemsShowing] = useState(false);
-
-  // Get recent recipes from context
-  const { recentRecipes, loading: recentLoading } = useRecentRecipes();
 
   const displayedRecipes = allItemsShowing
     ? recentRecipes
     : recentRecipes.slice(0, 6);
 
-  /**
-   * Handle AI recipe generation
-   */
   const handleAIGeneration = () => {
-    // Validate inputs
-    if (!search.trim() && selectedImages.length === 0) {
-      Alert.alert(
-        "Input Required",
-        "Please enter a search query or add ingredient images to generate recipes."
-      );
-      return;
-    }
-
-    // Navigate to suggestions screen with parameters
-    router.push({
-      pathname: "/recipes/suggestions",
-      params: {
-        searchText: search,
-        images: JSON.stringify(selectedImages),
-      },
-    });
+    router.push("../ai-generate");
   };
 
   const handleCategoryPress = (category: any) => {
@@ -258,10 +253,8 @@ export default function HomeScreen() {
     router.push("../categories");
   };
 
-  const handleRecipePress = (recipe: any) => {
-    // Navigate to recipe details with the recipe ID
-    const recipeId = recipe.recipe?.id || recipe.id;
-    router.push(`/recipes/details?id=${recipeId}`);
+  const handleRecipePress = (id: number) => {
+    router.push(`../recipes/details?id=${id}`);
   };
 
   const handleLoadMore = () => {
@@ -321,26 +314,52 @@ export default function HomeScreen() {
                 borderWidth: 1,
                 borderColor: colors.border,
               }}
-              onPress={() => router.push("/profile")}
+              onPress={() => router.push("../profile")}
             >
               <User size={24} color={colors.primary} />
             </TouchableOpacity>
           </View>
 
-          {/* Enhanced Search Bar */}
+          {/* Search Bar */}
+
           <View
             style={{
               paddingHorizontal: SPACING.containerPadding,
-              paddingTop: 20,
+              paddingTop: 20, // Adjusted to match visual rhythm
               paddingBottom: 24,
             }}
           >
-            <EnhancedSearchBar
-              value={search}
-              onChangeText={setSearch}
-              onImagesSelected={setSelectedImages}
-              placeholder="Search recipes, ingredients..."
-            />
+            <View style={{ position: "relative" }}>
+              <View
+                style={{
+                  position: "absolute",
+                  left: 16,
+                  top: "50%",
+                  transform: [{ translateY: -10 }],
+                  zIndex: 1,
+                }}
+              >
+                {/* Use #6B7280 for the icon color to match saved.tsx */}
+                <Search size={20} color="#6B7280" />
+              </View>
+              <TextInput
+                placeholder="Search recipes, ingredients..."
+                placeholderTextColor="#9CA3AF" // Match placeholder color
+                value={search}
+                onChangeText={setSearch}
+                style={{
+                  backgroundColor: "#F3F4F6", // Match background color
+                  borderRadius: 20, // Match border radius (20 vs 16)
+                  paddingVertical: 14,
+                  paddingHorizontal: 16,
+                  paddingLeft: 48,
+                  fontSize: 15, // Match font size
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB", // Match border color
+                  color: "#1A1A1A", // Match text color
+                }}
+              />
+            </View>
           </View>
 
           {/* AI Recipe Generator Button */}
@@ -382,6 +401,7 @@ export default function HomeScreen() {
 
           {/* Categories Carousel */}
           <View style={{ marginBottom: 24 }}>
+            {/* Section Header */}
             <View
               style={{
                 paddingHorizontal: SPACING.containerPadding,
@@ -422,6 +442,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Horizontal Scrollable Categories */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -460,90 +481,54 @@ export default function HomeScreen() {
             >
               Recent Recipes
             </Text>
-            {recentRecipes.length > 6 && (
-              <TouchableOpacity
-                onPress={allItemsShowing ? handleShowLess : handleLoadMore}
+            <TouchableOpacity
+              onPress={allItemsShowing ? handleShowLess : handleLoadMore}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <Text
                 style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
+                  fontSize: 14,
+                  fontWeight: "500",
+                  color: colors.primary,
                 }}
               >
-                <Text
-                  style={{
-                    fontSize: 14,
-                    fontWeight: "500",
-                    color: colors.primary,
-                  }}
-                >
-                  {allItemsShowing ? "Show Less" : "Show More"}
-                </Text>
-                {allItemsShowing ? (
-                  <ChevronUp size={16} color={colors.primary} />
-                ) : (
-                  <ChevronDown size={16} color={colors.primary} />
-                )}
-              </TouchableOpacity>
-            )}
+                {allItemsShowing ? "Show Less" : "Show More"}
+              </Text>
+              {allItemsShowing ? (
+                <ChevronUp size={16} color={colors.primary} />
+              ) : (
+                <ChevronDown size={16} color={colors.primary} />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* SCROLLABLE RECENT RECIPES SECTION */}
-        {recentLoading ? (
-          <View
-            style={{
-              flex: 1,
-              alignItems: "center",
-              justifyContent: "center",
-              paddingVertical: 40,
-            }}
-          >
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-        ) : recentRecipes.length === 0 ? (
-          <View
-            style={{
-              flex: 1,
-              alignItems: "center",
-              justifyContent: "center",
-              paddingHorizontal: 40,
-              paddingVertical: 40,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 16,
-                color: colors.textSecondary,
-                textAlign: "center",
-              }}
-            >
-              No recently viewed recipes yet.{"\n"}
-              Start exploring to build your recipe history!
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={displayedRecipes}
-            keyExtractor={(item) => item.recipe.id.toString()}
-            renderItem={({ item }) => (
-              <RecipeCard
-                recipe={item.recipe}
-                onPress={() => handleRecipePress(item)}
-              />
-            )}
-            contentContainerStyle={{
-              paddingHorizontal: SPACING.containerPadding,
-              paddingTop: 4,
-              paddingBottom: 24,
-            }}
-            showsVerticalScrollIndicator={false}
-            removeClippedSubviews={true}
-            maxToRenderPerBatch={10}
-            updateCellsBatchingPeriod={50}
-            initialNumToRender={6}
-            windowSize={10}
-          />
-        )}
+        {/* SCROLLABLE RECENT RECIPES SECTION ONLY */}
+        <FlatList
+          data={displayedRecipes}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <RecipeCard
+              recipe={item}
+              onPress={() => handleRecipePress(item.id)}
+            />
+          )}
+          contentContainerStyle={{
+            paddingHorizontal: SPACING.containerPadding,
+            paddingTop: 4,
+            paddingBottom: 24,
+          }}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          updateCellsBatchingPeriod={50}
+          initialNumToRender={6}
+          windowSize={10}
+        />
       </View>
     </SafeAreaView>
   );

@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ArrowLeft, Search, Clock, Flame, Heart } from "lucide-react-native";
 import { useRouter } from "expo-router";
+import { useTheme } from "@/contexts/ThemeContext"; // 1. Import Theme Hook
 
 const initialSavedRecipes = [
   {
@@ -64,14 +65,13 @@ const initialSavedRecipes = [
 
 export default function SavedRecipesScreen() {
   const router = useRouter();
+  const { colors, theme } = useTheme(); // 2. Get current theme colors
   const [search, setSearch] = useState("");
 
-  // 1. Initialize state with an 'isFavorite' property set to true
   const [recipes, setRecipes] = useState(
     initialSavedRecipes.map((recipe) => ({ ...recipe, isFavorite: true }))
   );
 
-  // 2. Function to toggle the favorite state
   const toggleFavorite = (id: number) => {
     setRecipes((currentRecipes) =>
       currentRecipes.map((recipe) =>
@@ -87,12 +87,15 @@ export default function SavedRecipesScreen() {
   );
 
   return (
-    // 3. CHANGE: Set backgroundColor to #FFFFFF so the status bar area is white
+    // 3. Use dynamic cardBg for the top safe area (Header background)
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: "#FFFFFF" }}
+      style={{ flex: 1, backgroundColor: colors.cardBg }}
       edges={["top"]}
     >
-      <StatusBar barStyle="dark-content" />
+      {/* Adapt status bar style */}
+      <StatusBar
+        barStyle={theme === "dark" ? "light-content" : "dark-content"}
+      />
 
       {/* Header */}
       <View
@@ -100,13 +103,13 @@ export default function SavedRecipesScreen() {
           paddingVertical: 16,
           paddingTop: 24,
           paddingHorizontal: 20,
-          backgroundColor: "#FFFFFF",
-          shadowColor: "#000",
+          backgroundColor: colors.cardBg, // Dynamic background
+          shadowColor: colors.shadow,
           shadowOpacity: 0.05,
           shadowRadius: 4,
           shadowOffset: { width: 0, height: 2 },
           elevation: 2,
-          zIndex: 10, // Ensure header stays on top
+          zIndex: 10,
         }}
       >
         <View
@@ -123,16 +126,22 @@ export default function SavedRecipesScreen() {
               width: 40,
               height: 40,
               borderRadius: 20,
-              backgroundColor: "#F3F4F6",
+              backgroundColor: colors.background, // Light gray in light mode, dark gray in dark mode
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
-              borderColor: "#E5E7EB",
+              borderColor: colors.border,
             }}
           >
-            <ArrowLeft size={20} color="#1A1A1A" />
+            <ArrowLeft size={20} color={colors.textPrimary} />
           </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: "600", color: "#1A1A1A" }}>
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "600",
+              color: colors.textPrimary, // Dynamic text color
+            }}
+          >
             Saved Recipes
           </Text>
         </View>
@@ -148,43 +157,49 @@ export default function SavedRecipesScreen() {
               zIndex: 1,
             }}
           >
-            <Search size={20} color="#6B7280" />
+            <Search size={20} color={colors.textSecondary} />
           </View>
           <TextInput
             placeholder="Search saved recipes..."
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={colors.textTertiary}
             value={search}
             onChangeText={setSearch}
             style={{
-              backgroundColor: "#F3F4F6",
+              backgroundColor: colors.background, // Dynamic input background
               borderRadius: 20,
               paddingVertical: 14,
               paddingHorizontal: 16,
               paddingLeft: 48,
               fontSize: 15,
               borderWidth: 1,
-              borderColor: "#E5E7EB",
-              color: "#1A1A1A",
+              borderColor: colors.border,
+              color: colors.textPrimary, // Dynamic input text
             }}
           />
         </View>
       </View>
 
       {/* Recipe Grid */}
-      {/* 4. CHANGE: Wrap ScrollView in a View with the gray background */}
-      <View style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
+      {/* 4. Use dynamic background for the main content area */}
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
-            paddingBottom: 120, // 5. CHANGE: Increased padding to clear Bottom Nav Bar
+            paddingBottom: 120,
             paddingTop: 8,
           }}
         >
           <View style={{ paddingHorizontal: 20, paddingVertical: 20 }}>
             {/* Count */}
-            <Text style={{ fontSize: 14, color: "#6B7280", marginBottom: 20 }}>
+            <Text
+              style={{
+                fontSize: 14,
+                color: colors.textSecondary,
+                marginBottom: 20,
+              }}
+            >
               {search ? "Showing " : "You have "}
-              <Text style={{ color: "#70AD47", fontWeight: "600" }}>
+              <Text style={{ color: colors.primary, fontWeight: "600" }}>
                 {filteredRecipes.length}
               </Text>
               {search ? " matching recipes" : " saved recipes"}
@@ -204,12 +219,12 @@ export default function SavedRecipesScreen() {
                   style={{
                     width: "48%",
                     marginBottom: 16,
-                    backgroundColor: "#FFFFFF",
+                    backgroundColor: colors.cardBg, // Dynamic card background
                     borderRadius: 20,
                     overflow: "hidden",
                     borderWidth: 1,
-                    borderColor: "#E5E7EB",
-                    shadowColor: "#000",
+                    borderColor: colors.border,
+                    shadowColor: colors.shadow,
                     shadowOpacity: 0.05,
                     shadowRadius: 8,
                     shadowOffset: { width: 0, height: 2 },
@@ -239,7 +254,7 @@ export default function SavedRecipesScreen() {
                       }}
                     />
 
-                    {/* Heart Icon - 6. CHANGE: Added toggle logic and conditional styling */}
+                    {/* Heart Icon */}
                     <TouchableOpacity
                       onPress={() => toggleFavorite(recipe.id)}
                       style={{
@@ -249,6 +264,7 @@ export default function SavedRecipesScreen() {
                         width: 32,
                         height: 32,
                         borderRadius: 16,
+                        // Using semi-transparent white here looks best on photos even in dark mode
                         backgroundColor: "rgba(255, 255, 255, 0.95)",
                         alignItems: "center",
                         justifyContent: "center",
@@ -281,7 +297,7 @@ export default function SavedRecipesScreen() {
                       <Text
                         style={{
                           fontSize: 10,
-                          color: "#70AD47",
+                          color: colors.primary, // Use theme primary color
                           fontWeight: "600",
                         }}
                       >
@@ -297,7 +313,7 @@ export default function SavedRecipesScreen() {
                       style={{
                         fontSize: 14,
                         fontWeight: "600",
-                        color: "#1A1A1A",
+                        color: colors.textPrimary, // Dynamic title color
                         marginBottom: 8,
                         lineHeight: 18,
                       }}
@@ -318,8 +334,10 @@ export default function SavedRecipesScreen() {
                           gap: 4,
                         }}
                       >
-                        <Clock size={12} color="#6B7280" />
-                        <Text style={{ fontSize: 12, color: "#6B7280" }}>
+                        <Clock size={12} color={colors.textSecondary} />
+                        <Text
+                          style={{ fontSize: 12, color: colors.textSecondary }}
+                        >
                           {recipe.time}
                         </Text>
                       </View>
@@ -330,8 +348,10 @@ export default function SavedRecipesScreen() {
                           gap: 4,
                         }}
                       >
-                        <Flame size={12} color="#6B7280" />
-                        <Text style={{ fontSize: 12, color: "#6B7280" }}>
+                        <Flame size={12} color={colors.textSecondary} />
+                        <Text
+                          style={{ fontSize: 12, color: colors.textSecondary }}
+                        >
                           {recipe.calories}
                         </Text>
                       </View>

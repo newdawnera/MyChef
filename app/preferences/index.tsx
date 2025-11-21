@@ -1,6 +1,12 @@
 // app/preferences/index.tsx
+/**
+ * User Preferences Screen - WITH FIRESTORE PERSISTENCE
+ *
+ * Now saves/loads preferences to/from Firestore
+ * Uses usePreferences hook for data management
+ */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,6 +17,8 @@ import {
   Modal,
   Platform,
   KeyboardAvoidingView,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -27,8 +35,11 @@ import {
   X,
   Plus,
   Minus,
+  Save,
 } from "lucide-react-native";
 import { useRouter } from "expo-router";
+import { useTheme } from "@/contexts/ThemeContext";
+import { usePreferences } from "@/hooks/usePreferences";
 
 const dietaryOptions = [
   { id: "vegetarian", label: "Vegetarian", icon: Leaf },
@@ -74,19 +85,85 @@ const mealGoals = [
 
 export default function PreferencesScreen() {
   const router = useRouter();
+  const { colors, theme } = useTheme();
+
+  // Use preferences hook
+  const {
+    preferences,
+    savePreferences,
+    loading: prefsLoading,
+    saving: prefsSaving,
+    error: prefsError,
+  } = usePreferences();
+
+  // Local state for form
   const [showDietModal, setShowDietModal] = useState(false);
   const [showAllergyModal, setShowAllergyModal] = useState(false);
   const [showCuisineModal, setShowCuisineModal] = useState(false);
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
 
-  const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
-  const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
-  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
-  const [skillLevel, setSkillLevel] = useState("Intermediate");
-  const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
-  const [avoidIngredients, setAvoidIngredients] = useState("");
-  const [servingSize, setServingSize] = useState(2);
+  // Form state - initialize from preferences
+  const [selectedDiets, setSelectedDiets] = useState<string[]>(
+    preferences.selectedDiets
+  );
+  const [selectedAllergies, setSelectedAllergies] = useState<string[]>(
+    preferences.selectedAllergies
+  );
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>(
+    preferences.selectedCuisines
+  );
+  const [skillLevel, setSkillLevel] = useState(preferences.skillLevel);
+  const [selectedGoals, setSelectedGoals] = useState<string[]>(
+    preferences.selectedGoals
+  );
+  const [avoidIngredientsText, setAvoidIngredientsText] = useState(
+    preferences.avoidIngredients.join(", ")
+  );
+  const [servingSize, setServingSize] = useState(preferences.servingSize);
+
+  // Update form when preferences load
+  useEffect(() => {
+    setSelectedDiets(preferences.selectedDiets);
+    setSelectedAllergies(preferences.selectedAllergies);
+    setSelectedCuisines(preferences.selectedCuisines);
+    setSkillLevel(preferences.skillLevel);
+    setSelectedGoals(preferences.selectedGoals);
+    setAvoidIngredientsText(preferences.avoidIngredients.join(", "));
+    setServingSize(preferences.servingSize);
+  }, [preferences]);
+
+  /**
+   * Save preferences to Firestore
+   */
+  const handleSave = async () => {
+    try {
+      // Parse avoid ingredients
+      const avoidIngredients = avoidIngredientsText
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+
+      // Create updated preferences object
+      const updated = {
+        ...preferences,
+        selectedDiets,
+        selectedAllergies,
+        selectedCuisines,
+        skillLevel,
+        selectedGoals,
+        avoidIngredients,
+        servingSize,
+      };
+
+      await savePreferences(updated);
+
+      Alert.alert("Success", "Your preferences have been saved!");
+    } catch (error) {
+      console.error("Failed to save preferences:", error);
+      Alert.alert("Error", "Failed to save preferences. Please try again.");
+    }
+  };
 
   const toggleSelection = (
     array: string[],
@@ -114,20 +191,20 @@ export default function PreferencesScreen() {
     <TouchableOpacity
       onPress={onPress}
       style={{
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.cardBg,
         borderRadius: 16,
         padding: 16,
         marginBottom: 12,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        shadowColor: "#000",
+        shadowColor: colors.shadow,
         shadowOpacity: 0.05,
         shadowRadius: 8,
         shadowOffset: { width: 0, height: 2 },
         elevation: 2,
         borderWidth: 1,
-        borderColor: "#E5E7EB",
+        borderColor: colors.border,
       }}
     >
       <View
@@ -138,30 +215,33 @@ export default function PreferencesScreen() {
             width: 40,
             height: 40,
             borderRadius: 20,
-            backgroundColor: "#70AD4715",
+            backgroundColor: `${colors.primary}15`,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <Icon size={20} color="#70AD47" strokeWidth={1.5} />
+          <Icon size={20} color={colors.primary} strokeWidth={1.5} />
         </View>
         <View style={{ flex: 1 }}>
           <Text
             style={{
               fontSize: 15,
-              color: "#1A1A1A",
+              color: colors.textPrimary,
               fontWeight: "500",
               marginBottom: 2,
             }}
           >
             {title}
           </Text>
-          <Text style={{ fontSize: 13, color: "#6B7280" }} numberOfLines={1}>
+          <Text
+            style={{ fontSize: 13, color: colors.textSecondary }}
+            numberOfLines={1}
+          >
             {value}
           </Text>
         </View>
       </View>
-      <ChevronRight size={20} color="#9CA3AF" />
+      <ChevronRight size={20} color={colors.textTertiary} />
     </TouchableOpacity>
   );
 
@@ -192,7 +272,7 @@ export default function PreferencesScreen() {
       >
         <View
           style={{
-            backgroundColor: "#FFFFFF",
+            backgroundColor: colors.cardBg,
             borderTopLeftRadius: 24,
             borderTopRightRadius: 24,
             paddingHorizontal: 20,
@@ -209,11 +289,17 @@ export default function PreferencesScreen() {
               marginBottom: 20,
             }}
           >
-            <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A" }}>
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "700",
+                color: colors.textPrimary,
+              }}
+            >
               {title}
             </Text>
             <TouchableOpacity onPress={onClose}>
-              <X size={24} color="#6B7280" />
+              <X size={24} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
@@ -243,12 +329,12 @@ export default function PreferencesScreen() {
                     alignItems: "center",
                     justifyContent: "space-between",
                     paddingVertical: 16,
-                    paddingHorizontal: 16,
-                    backgroundColor: isSelected ? "#70AD4710" : "#F8F9FA",
+                    paddingHorizontal: 12,
                     borderRadius: 12,
+                    backgroundColor: isSelected
+                      ? `${colors.primary}10`
+                      : "transparent",
                     marginBottom: 8,
-                    borderWidth: 1,
-                    borderColor: isSelected ? "#70AD47" : "#E5E7EB",
                   }}
                 >
                   <View
@@ -259,69 +345,65 @@ export default function PreferencesScreen() {
                     }}
                   >
                     {ItemIcon && (
-                      <View
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 16,
-                          backgroundColor: isSelected
-                            ? "#70AD4720"
-                            : "#70AD4710",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <ItemIcon size={16} color="#70AD47" strokeWidth={1.5} />
-                      </View>
+                      <ItemIcon
+                        size={20}
+                        color={
+                          isSelected ? colors.primary : colors.textSecondary
+                        }
+                        strokeWidth={1.5}
+                      />
                     )}
                     <Text
                       style={{
-                        fontSize: 15,
-                        color: isSelected ? "#70AD47" : "#1A1A1A",
+                        fontSize: 16,
+                        color: isSelected ? colors.primary : colors.textPrimary,
                         fontWeight: isSelected ? "600" : "400",
                       }}
                     >
                       {itemLabel}
                     </Text>
                   </View>
-                  {isSelected && (
-                    <Check size={20} color="#70AD47" strokeWidth={2.5} />
-                  )}
+                  {isSelected && <Check size={20} color={colors.primary} />}
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-
-          {multiSelect && (
-            <TouchableOpacity
-              onPress={onClose}
-              style={{
-                backgroundColor: "#70AD47",
-                borderRadius: 16,
-                paddingVertical: 16,
-                alignItems: "center",
-                marginTop: 16,
-              }}
-            >
-              <Text
-                style={{ fontSize: 16, fontWeight: "700", color: "#FFFFFF" }}
-              >
-                Done
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     </Modal>
   );
 
+  if (prefsLoading) {
+    return (
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: colors.background }}
+        edges={["bottom"]}
+      >
+        <StatusBar
+          barStyle={theme === "dark" ? "light-content" : "dark-content"}
+        />
+        <View
+          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+        >
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text
+            style={{ marginTop: 16, fontSize: 16, color: colors.textSecondary }}
+          >
+            Loading preferences...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: "#FFFFFF" }}
+      style={{ flex: 1, backgroundColor: colors.background }}
       edges={["top", "bottom"]}
     >
-      <StatusBar barStyle="dark-content" />
-
+      <StatusBar
+        barStyle={theme === "dark" ? "light-content" : "dark-content"}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
@@ -333,41 +415,92 @@ export default function PreferencesScreen() {
             paddingHorizontal: 20,
             flexDirection: "row",
             alignItems: "center",
-            gap: 12,
-            backgroundColor: "#FFFFFF",
-            shadowColor: "#000",
+            justifyContent: "space-between",
+            backgroundColor: colors.cardBg,
+            shadowColor: colors.shadow,
             shadowOpacity: 0.05,
             shadowRadius: 4,
             shadowOffset: { width: 0, height: 2 },
             elevation: 2,
-            zIndex: 1,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
           }}
         >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: colors.background,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            >
+              <ArrowLeft size={20} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "600",
+                color: colors.textPrimary,
+              }}
+            >
+              Preferences
+            </Text>
+          </View>
+
+          {/* Save Button */}
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={handleSave}
+            disabled={prefsSaving}
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: "#F3F4F6",
+              backgroundColor: prefsSaving
+                ? colors.textTertiary
+                : colors.primary,
+              borderRadius: 12,
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
-              borderWidth: 1,
-              borderColor: "#E5E7EB",
+              gap: 6,
             }}
           >
-            <ArrowLeft size={20} color="#1A1A1A" />
+            {prefsSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Save size={18} color="#FFFFFF" />
+            )}
+            <Text style={{ fontSize: 14, fontWeight: "600", color: "#FFFFFF" }}>
+              {prefsSaving ? "Saving..." : "Save"}
+            </Text>
           </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: "600", color: "#1A1A1A" }}>
-            Preferences
-          </Text>
         </View>
 
         <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 20 }}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 20 }}
-          keyboardShouldPersistTaps="handled"
         >
+          {/* Error Message */}
+          {prefsError && (
+            <View
+              style={{
+                backgroundColor: "#FEE2E2",
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 16,
+              }}
+            >
+              <Text style={{ fontSize: 14, color: "#DC2626" }}>
+                {prefsError}
+              </Text>
+            </View>
+          )}
+
           {/* Dietary Preferences */}
           <PreferenceCard
             title="Dietary Preferences"
@@ -382,7 +515,7 @@ export default function PreferencesScreen() {
             icon={Leaf}
           />
 
-          {/* Allergies */}
+          {/* Allergies & Restrictions */}
           <PreferenceCard
             title="Allergies & Restrictions"
             value={
@@ -429,17 +562,17 @@ export default function PreferencesScreen() {
           {/* Ingredients to Avoid */}
           <View
             style={{
-              backgroundColor: "#FFFFFF",
+              backgroundColor: colors.cardBg,
               borderRadius: 16,
               padding: 16,
               marginBottom: 12,
-              shadowColor: "#000",
+              shadowColor: colors.shadow,
               shadowOpacity: 0.05,
               shadowRadius: 8,
               shadowOffset: { width: 0, height: 2 },
               elevation: 2,
               borderWidth: 1,
-              borderColor: "#E5E7EB",
+              borderColor: colors.border,
             }}
           >
             <View
@@ -463,25 +596,29 @@ export default function PreferencesScreen() {
                 <Ban size={20} color="#FF6B6B" strokeWidth={1.5} />
               </View>
               <Text
-                style={{ fontSize: 15, color: "#1A1A1A", fontWeight: "500" }}
+                style={{
+                  fontSize: 15,
+                  color: colors.textPrimary,
+                  fontWeight: "500",
+                }}
               >
                 Ingredients to Avoid
               </Text>
             </View>
             <TextInput
               placeholder="e.g., mushrooms, cilantro"
-              placeholderTextColor="#9CA3AF"
-              value={avoidIngredients}
-              onChangeText={setAvoidIngredients}
+              placeholderTextColor={colors.textTertiary}
+              value={avoidIngredientsText}
+              onChangeText={setAvoidIngredientsText}
               style={{
-                backgroundColor: "#F8F9FA",
+                backgroundColor: colors.background,
                 borderRadius: 12,
                 paddingVertical: 12,
                 paddingHorizontal: 16,
                 fontSize: 14,
-                color: "#1A1A1A",
+                color: colors.textPrimary,
                 borderWidth: 1,
-                borderColor: "#E5E7EB",
+                borderColor: colors.border,
               }}
             />
           </View>
@@ -489,20 +626,20 @@ export default function PreferencesScreen() {
           {/* Default Serving Size */}
           <View
             style={{
-              backgroundColor: "#FFFFFF",
+              backgroundColor: colors.cardBg,
               borderRadius: 16,
               padding: 16,
               marginBottom: 20,
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
-              shadowColor: "#000",
+              shadowColor: colors.shadow,
               shadowOpacity: 0.05,
               shadowRadius: 8,
               shadowOffset: { width: 0, height: 2 },
               elevation: 2,
               borderWidth: 1,
-              borderColor: "#E5E7EB",
+              borderColor: colors.border,
             }}
           >
             <View
@@ -513,15 +650,19 @@ export default function PreferencesScreen() {
                   width: 40,
                   height: 40,
                   borderRadius: 20,
-                  backgroundColor: "#70AD4715",
+                  backgroundColor: `${colors.primary}15`,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <Users size={20} color="#70AD47" strokeWidth={1.5} />
+                <Users size={20} color={colors.primary} strokeWidth={1.5} />
               </View>
               <Text
-                style={{ fontSize: 15, color: "#1A1A1A", fontWeight: "500" }}
+                style={{
+                  fontSize: 15,
+                  color: colors.textPrimary,
+                  fontWeight: "500",
+                }}
               >
                 Default Serving Size
               </Text>
@@ -535,18 +676,20 @@ export default function PreferencesScreen() {
                   width: 36,
                   height: 36,
                   borderRadius: 18,
-                  backgroundColor: "#F3F4F6",
+                  backgroundColor: colors.background,
                   alignItems: "center",
                   justifyContent: "center",
+                  borderWidth: 1,
+                  borderColor: colors.border,
                 }}
               >
-                <Minus size={18} color="#6B7280" />
+                <Minus size={18} color={colors.textSecondary} />
               </TouchableOpacity>
               <Text
                 style={{
                   fontSize: 18,
                   fontWeight: "700",
-                  color: "#1A1A1A",
+                  color: colors.textPrimary,
                   width: 30,
                   textAlign: "center",
                 }}
@@ -554,14 +697,19 @@ export default function PreferencesScreen() {
                 {servingSize}
               </Text>
               <TouchableOpacity
-                onPress={() => setServingSize(Math.min(6, servingSize + 1))}
+                onPress={() => setServingSize(Math.min(12, servingSize + 1))}
                 style={{
                   width: 36,
                   height: 36,
                   borderRadius: 18,
-                  backgroundColor: "#70AD47",
+                  backgroundColor: colors.primary,
                   alignItems: "center",
                   justifyContent: "center",
+                  shadowColor: colors.primary,
+                  shadowOpacity: 0.3,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 2 },
+                  elevation: 2,
                 }}
               >
                 <Plus size={18} color="#FFFFFF" />
@@ -611,7 +759,7 @@ export default function PreferencesScreen() {
         title="Cooking Skill Level"
         options={skillLevels}
         selectedItems={[skillLevel]}
-        onToggle={setSkillLevel}
+        onToggle={(item) => setSkillLevel(item as typeof skillLevel)}
         multiSelect={false}
       />
 

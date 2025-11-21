@@ -15,6 +15,7 @@ import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 // Import the new auth provider
 import { AuthProvider } from "@/contexts/AuthContext";
 import { UserProvider } from "@/contexts/UserContext";
+import { RecipeProvider } from "@/contexts/RecipeContext";
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -53,6 +54,38 @@ function RootLayoutNav() {
             headerShown: false, // <-- Ensures no header bar is shown
           }}
         />
+        {/* Category Screen: Must hide header */}
+        <Stack.Screen
+          name="categories/index"
+          options={{
+            headerShown: false, // <-- Ensures no header bar is shown
+          }}
+        />
+        {/* Category Screen: Must hide header */}
+        <Stack.Screen
+          name="categories/[category]"
+          options={{
+            headerShown: false, // <-- Ensures no header bar is shown
+          }}
+        />
+        <Stack.Screen
+          name="privacy/index"
+          options={{
+            headerShown: false, // <-- Ensures no header bar is shown
+          }}
+        />
+        <Stack.Screen
+          name="recipes/details"
+          options={{
+            headerShown: false, // <-- Ensures no header bar is shown
+          }}
+        />
+        <Stack.Screen
+          name="recipes/suggestions"
+          options={{
+            headerShown: false, // <-- Ensures no header bar is shown
+          }}
+        />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="modal"
@@ -73,9 +106,11 @@ export default function RootLayout() {
         <AuthProvider>
           {/* 2. Wrap the app in UserProvider here */}
           <UserProvider>
-            <ThemeProvider>
-              <RootLayoutNav />
-            </ThemeProvider>
+            <RecipeProvider>
+              <ThemeProvider>
+                <RootLayoutNav />
+              </ThemeProvider>
+            </RecipeProvider>
           </UserProvider>
         </AuthProvider>
       </GestureHandlerRootView>
