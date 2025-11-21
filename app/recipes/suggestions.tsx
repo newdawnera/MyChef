@@ -195,7 +195,7 @@ export default function AiSuggestionScreen() {
     return (
       <SafeAreaView
         style={{ flex: 1, backgroundColor: colors.background }}
-        edges={["bottom"]}
+        edges={["top", "bottom"]}
       >
         <StatusBar
           barStyle={theme === "dark" ? "light-content" : "dark-content"}
@@ -302,7 +302,7 @@ export default function AiSuggestionScreen() {
     return (
       <SafeAreaView
         style={{ flex: 1, backgroundColor: colors.background }}
-        edges={["bottom"]}
+        edges={["top", "bottom"]}
       >
         <StatusBar
           barStyle={theme === "dark" ? "light-content" : "dark-content"}
@@ -395,7 +395,7 @@ export default function AiSuggestionScreen() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background }}
-      edges={["bottom"]}
+      edges={["top", "bottom"]}
     >
       <StatusBar
         barStyle={theme === "dark" ? "light-content" : "dark-content"}
