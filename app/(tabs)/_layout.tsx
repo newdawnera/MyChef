@@ -17,7 +17,7 @@ export default function TabLayout() {
           backgroundColor: colors.cardBg, // This ensures the bar background changes in dark mode
           paddingTop: 12,
           paddingBottom: 16,
-          height: 100,
+          height: 110,
           shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: -4 },
           shadowOpacity: 0.05,

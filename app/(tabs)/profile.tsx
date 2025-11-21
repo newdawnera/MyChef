@@ -75,7 +75,14 @@ export default function ProfileScreen() {
     },
     // Removed "On" value since we are using a switch now
     { icon: Bell, label: "Notifications", value: "", action: () => {} },
-    { icon: Lock, label: "Privacy", value: "", action: () => {} },
+    {
+      icon: Lock,
+      label: "Privacy",
+      value: "",
+      action: () => {
+        router.push("../privacy");
+      },
+    },
     {
       icon: SettingsIcon,
       label: "Preferences",

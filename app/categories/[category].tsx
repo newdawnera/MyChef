@@ -14,12 +14,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import {
-  ChevronLeft,
+  ArrowLeft,
   Clock,
   Flame,
   SlidersHorizontal,
 } from "lucide-react-native";
-import { COLORS, SPACING, SHADOWS } from "@/constants/categories";
+import {
+  SPACING,
+  SHADOWS,
+  COLORS as STATIC_COLORS,
+} from "@/constants/categories"; // Renamed to avoid conflict
+import { useTheme } from "@/contexts/ThemeContext"; // 1. Import Theme Hook
 
 interface Recipe {
   id: number;
@@ -43,6 +48,8 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
   cardWidth,
   onPress,
 }) => {
+  const { colors } = useTheme(); // 2. Use theme colors inside card
+
   const getCalories = () => {
     const calorieNutrient = recipe.nutrition?.nutrients.find(
       (n) => n.name === "Calories"
@@ -65,12 +72,13 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
       {({ pressed }) => (
         <View
           style={{
-            backgroundColor: COLORS.cardBg,
+            backgroundColor: colors.cardBg, // Dynamic Card BG
             borderRadius: SPACING.borderRadius,
             overflow: "hidden",
             ...SHADOWS.card,
+            shadowColor: colors.shadow, // Dynamic Shadow
             borderWidth: 1,
-            borderColor: "rgba(243, 244, 246, 0.5)",
+            borderColor: colors.border, // Dynamic Border
             opacity: pressed ? 0.7 : 1,
             transform: [{ scale: pressed ? 0.98 : 1 }],
           }}
@@ -81,7 +89,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
             style={{
               width: "100%",
               height: cardWidth === "100%" ? 200 : 140,
-              backgroundColor: "#f3f4f6",
+              backgroundColor: colors.background,
             }}
             resizeMode="cover"
           />
@@ -92,7 +100,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
               style={{
                 fontSize: 15,
                 fontWeight: "600",
-                color: COLORS.textPrimary,
+                color: colors.textPrimary, // Dynamic Text
                 marginBottom: 8,
               }}
               numberOfLines={2}
@@ -102,11 +110,11 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
 
             {/* Meta Info */}
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Clock size={14} color={COLORS.textSecondary} />
+              <Clock size={14} color={colors.textSecondary} />
               <Text
                 style={{
                   fontSize: 13,
-                  color: COLORS.textSecondary,
+                  color: colors.textSecondary, // Dynamic Secondary Text
                   marginLeft: 4,
                 }}
               >
@@ -118,17 +126,17 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
                   <Text
                     style={{
                       fontSize: 13,
-                      color: COLORS.textSecondary,
+                      color: colors.textSecondary,
                       marginHorizontal: 8,
                     }}
                   >
                     •
                   </Text>
-                  <Flame size={14} color={COLORS.textSecondary} />
+                  <Flame size={14} color={colors.textSecondary} />
                   <Text
                     style={{
                       fontSize: 13,
-                      color: COLORS.textSecondary,
+                      color: colors.textSecondary,
                       marginLeft: 4,
                     }}
                   >
@@ -146,8 +154,12 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
 
 // Main Category Results Screen
 export default function CategoryResultsScreen() {
+  const { colors, theme } = useTheme(); // 3. Get Theme context
   const params = useLocalSearchParams();
   const { category, label, query, color } = params;
+
+  // Determine the header color (Dynamic from params or fallback to theme primary)
+  const headerColor = (color as string) || colors.primary;
 
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
@@ -214,7 +226,7 @@ export default function CategoryResultsScreen() {
       }
 
       // Replace with your Spoonacular API key
-      const API_KEY = "YOUR_SPOONACULAR_API_KEY";
+      const API_KEY = process.env.EXPO_PUBLIC_SPOONACULAR_API_KEY;
       const response = await fetch(
         `https://api.spoonacular.com/recipes/complexSearch?query=${query}&number=20&addRecipeNutrition=true&apiKey=${API_KEY}`
       );
@@ -244,26 +256,28 @@ export default function CategoryResultsScreen() {
   };
 
   return (
+    // 4. Apply header color to SafeAreaView to stretch it upwards
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: COLORS.background }}
-      edges={["bottom"]}
+      style={{ flex: 1, backgroundColor: headerColor }}
+      edges={["top"]} // Only pad top (status bar)
     >
       <StatusBar barStyle="light-content" />
 
       {/* Header with Category Banner */}
       <View
         style={{
-          backgroundColor: (color as string) || COLORS.primary,
+          backgroundColor: headerColor, // Matches SafeAreaView
           paddingHorizontal: SPACING.containerPadding,
           paddingTop: 16,
           paddingBottom: 20,
           borderBottomLeftRadius: 24,
           borderBottomRightRadius: 24,
-          shadowColor: "#000",
+          shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.1,
           shadowRadius: 8,
           elevation: 4,
+          zIndex: 1, // Ensure it sits on top of content
         }}
       >
         <View
@@ -287,7 +301,7 @@ export default function CategoryResultsScreen() {
                 marginRight: 16,
               }}
             >
-              <ChevronLeft size={24} color="#ffffff" />
+              <ArrowLeft size={20} color="#ffffff" />
             </TouchableOpacity>
 
             <View style={{ flex: 1 }}>
@@ -332,116 +346,115 @@ export default function CategoryResultsScreen() {
         </View>
       </View>
 
-      {/* Recipes List/Grid */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          paddingHorizontal: SPACING.containerPadding,
-          paddingTop: 20,
-          paddingBottom: 40,
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={(color as string) || COLORS.primary}
-            colors={[(color as string) || COLORS.primary]}
-          />
-        }
-      >
-        {loading ? (
-          // Loading State
-          <View style={{ paddingTop: 60, alignItems: "center" }}>
-            <ActivityIndicator
-              size="large"
-              color={(color as string) || COLORS.primary}
+      {/* 5. Content Wrapper with Theme Background Color */}
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: SPACING.containerPadding,
+            paddingTop: 20,
+            paddingBottom: 40,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={headerColor}
+              colors={[headerColor]}
             />
-            <Text
+          }
+        >
+          {loading ? (
+            // Loading State
+            <View style={{ paddingTop: 60, alignItems: "center" }}>
+              <ActivityIndicator size="large" color={headerColor} />
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: colors.textSecondary,
+                  marginTop: 12,
+                }}
+              >
+                Loading delicious recipes...
+              </Text>
+            </View>
+          ) : recipes.length === 0 ? (
+            // Empty State
+            <View style={{ paddingTop: 60, alignItems: "center" }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "600",
+                  color: colors.textPrimary,
+                  marginBottom: 8,
+                }}
+              >
+                No recipes found
+              </Text>
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: colors.textSecondary,
+                  textAlign: "center",
+                }}
+              >
+                Try searching for a different category
+              </Text>
+            </View>
+          ) : (
+            // Recipes Grid/List
+            <View
               style={{
-                fontSize: 14,
-                color: COLORS.textSecondary,
-                marginTop: 12,
+                flexDirection: "row",
+                flexWrap: "wrap",
+                justifyContent:
+                  layoutType === "list" ? "flex-start" : "space-between",
               }}
             >
-              Loading delicious recipes...
-            </Text>
-          </View>
-        ) : recipes.length === 0 ? (
-          // Empty State
-          <View style={{ paddingTop: 60, alignItems: "center" }}>
-            <Text
-              style={{
-                fontSize: 18,
-                fontWeight: "600",
-                color: COLORS.textPrimary,
-                marginBottom: 8,
-              }}
-            >
-              No recipes found
-            </Text>
-            <Text
-              style={{
-                fontSize: 14,
-                color: COLORS.textSecondary,
-                textAlign: "center",
-              }}
-            >
-              Try searching for a different category
-            </Text>
-          </View>
-        ) : (
-          // Recipes Grid/List
+              {recipes.map((recipe) => (
+                <RecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  cardWidth={cardWidth}
+                  onPress={() => handleRecipePress(recipe.id)}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Floating Action Info (Optional) */}
+        {!loading && recipes.length > 0 && (
           <View
             style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              justifyContent:
-                layoutType === "list" ? "flex-start" : "space-between",
+              position: "absolute",
+              bottom: 20,
+              right: 20,
+              backgroundColor: headerColor,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 20,
+              shadowColor: colors.shadow,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 8,
+              elevation: 4,
             }}
           >
-            {recipes.map((recipe) => (
-              <RecipeCard
-                key={recipe.id}
-                recipe={recipe}
-                cardWidth={cardWidth}
-                onPress={() => handleRecipePress(recipe.id)}
-              />
-            ))}
+            <Text
+              style={{
+                color: "#ffffff",
+                fontSize: 12,
+                fontWeight: "600",
+              }}
+            >
+              {layoutType === "grid"
+                ? `${numColumns} column${numColumns > 1 ? "s" : ""}`
+                : "List view"}
+            </Text>
           </View>
         )}
-      </ScrollView>
-
-      {/* Floating Action Info (Optional) */}
-      {!loading && recipes.length > 0 && (
-        <View
-          style={{
-            position: "absolute",
-            bottom: 20,
-            right: 20,
-            backgroundColor: (color as string) || COLORS.primary,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 20,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.2,
-            shadowRadius: 8,
-            elevation: 4,
-          }}
-        >
-          <Text
-            style={{
-              color: "#ffffff",
-              fontSize: 12,
-              fontWeight: "600",
-            }}
-          >
-            {layoutType === "grid"
-              ? `${numColumns} column${numColumns > 1 ? "s" : ""}`
-              : "List view"}
-          </Text>
-        </View>
-      )}
+      </View>
     </SafeAreaView>
   );
 }

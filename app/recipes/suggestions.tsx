@@ -1,4 +1,11 @@
-// app/suggestions.tsx - React Native version of AI Suggestions screen
+// app/recipes/suggestions.tsx - AI Suggestions with Real Spoonacular Data
+/**
+ * This screen now:
+ * 1. Receives search params from Home screen
+ * 2. Calls Groq AI for analysis
+ * 3. Fetches real recipes from Spoonacular
+ * 4. Displays results with proper loading/error states
+ */
 
 import React, { useEffect, useState, useRef } from "react";
 import {
@@ -9,58 +16,57 @@ import {
   ScrollView,
   Animated,
   StatusBar,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ArrowLeft, Clock, Flame, Users, Sparkles } from "lucide-react-native";
-import { useRouter } from "expo-router";
-
-const suggestedRecipes = [
-  {
-    id: 1,
-    image:
-      "https://images.unsplash.com/photo-1712579733874-c3a79f0f9d12?auto=format&fit=crop&w=800&q=80",
-    title: "Grilled Chicken with Herbs",
-    time: "35 min",
-    calories: 420,
-    servings: 2,
-    difficulty: "Easy",
-    tags: ["High Protein", "Low Carb"],
-  },
-  {
-    id: 2,
-    image:
-      "https://images.unsplash.com/photo-1536540166989-ad5334cee5f0?auto=format&fit=crop&w=800&q=80",
-    title: "Asian Noodle Stir Fry",
-    time: "20 min",
-    calories: 385,
-    servings: 2,
-    difficulty: "Easy",
-    tags: ["Quick", "Vegetarian"],
-  },
-  {
-    id: 3,
-    image:
-      "https://images.unsplash.com/photo-1677653805080-59c57727c84e?auto=format&fit=crop&w=800&q=80",
-    title: "Mediterranean Salad Bowl",
-    time: "15 min",
-    calories: 280,
-    servings: 2,
-    difficulty: "Very Easy",
-    tags: ["Healthy", "Fresh"],
-  },
-];
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useTheme } from "@/contexts/ThemeContext";
+import { usePreferences } from "@/hooks/usePreferences";
+import { analyzeRecipeRequest } from "@/services/groqServices";
+import {
+  groqToSpoonacularParams,
+  searchRecipes,
+} from "@/services/spoonacularServices";
+import { SpoonacularRecipe, calculateDifficulty } from "@/types/recipe";
 
 export default function AiSuggestionScreen() {
   const router = useRouter();
-  const [isGenerating, setIsGenerating] = useState(true);
-  const [showRecipes, setShowRecipes] = useState(false);
+  const { colors, theme } = useTheme();
+  const params = useLocalSearchParams();
 
+  // Get preferences
+  const { preferences } = usePreferences();
+
+  // State
+  const [isGenerating, setIsGenerating] = useState(true);
+  const [recipes, setRecipes] = useState<SpoonacularRecipe[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // Extract params from navigation
+  const searchText = (params.searchText as string) || "";
+  const imagesParam = params.images as string;
+  const images = imagesParam ? JSON.parse(imagesParam) : [];
+
+  // Animations
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
+  /**
+   * Generate recipes on mount
+   */
   useEffect(() => {
-    // Loading animation
+    generateRecipes();
+  }, []);
+
+  /**
+   * Loading animation
+   */
+  useEffect(() => {
+    if (!isGenerating) return;
+
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(scaleAnim, {
@@ -87,39 +93,113 @@ export default function AiSuggestionScreen() {
     pulse.start();
     rotate.start();
 
-    const timer = setTimeout(() => {
-      pulse.stop();
-      rotate.stop();
-      setIsGenerating(false);
-      setShowRecipes(true);
-
-      // Fade in recipes
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
-    }, 2000);
-
     return () => {
-      clearTimeout(timer);
       pulse.stop();
       rotate.stop();
     };
-  }, []);
+  }, [isGenerating]);
+
+  /**
+   * Main recipe generation flow
+   */
+  const generateRecipes = async () => {
+    try {
+      setIsGenerating(true);
+      setError(null);
+
+      console.log("🤖 Starting AI recipe generation...");
+      console.log("Search:", searchText);
+      console.log("Images:", images.length);
+
+      // Step 1: Analyze with Groq AI
+      const groqResponse = await analyzeRecipeRequest({
+        searchText,
+        images,
+        preferences,
+      });
+
+      console.log("✅ Groq analysis complete:", groqResponse);
+
+      // Step 2: Convert to Spoonacular parameters
+      const spoonacularParams = groqToSpoonacularParams(groqResponse);
+
+      console.log("🔍 Searching Spoonacular with:", spoonacularParams);
+
+      // Step 3: Search recipes
+      const results = await searchRecipes(spoonacularParams);
+
+      console.log(`✅ Found ${results.results.length} recipes`);
+
+      // If no results, try a simpler search
+      if (results.results.length === 0) {
+        console.log("⚠️ No results, trying simpler search...");
+        const fallbackResults = await searchRecipes({
+          query: searchText || "popular recipes",
+          number: 10,
+          addRecipeInformation: true,
+        });
+        setRecipes(fallbackResults.results as any);
+      } else {
+        setRecipes(results.results as any);
+      }
+
+      // Fade in recipes
+      setTimeout(() => {
+        setIsGenerating(false);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }).start();
+      }, 500);
+    } catch (err) {
+      console.error("❌ Recipe generation error:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to generate recipes"
+      );
+      setIsGenerating(false);
+
+      Alert.alert(
+        "Generation Failed",
+        "Failed to generate recipes. Please try again.",
+        [
+          { text: "Go Back", onPress: () => router.back() },
+          { text: "Retry", onPress: generateRecipes },
+        ]
+      );
+    }
+  };
 
   const spin = rotateAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
 
+  /**
+   * Handle recipe press
+   */
+  const handleRecipePress = (recipe: SpoonacularRecipe) => {
+    router.push(`/recipes/details?id=${recipe.id}`);
+  };
+
+  /**
+   * Handle regenerate
+   */
+  const handleRegenerate = () => {
+    setRecipes([]);
+    generateRecipes();
+  };
+
+  // Loading State
   if (isGenerating) {
     return (
       <SafeAreaView
-        style={{ flex: 1, backgroundColor: "#F8F9FA" }}
+        style={{ flex: 1, backgroundColor: colors.background }}
         edges={["bottom"]}
       >
-        <StatusBar barStyle="dark-content" />
+        <StatusBar
+          barStyle={theme === "dark" ? "light-content" : "dark-content"}
+        />
 
         {/* Header */}
         <View
@@ -129,12 +209,14 @@ export default function AiSuggestionScreen() {
             flexDirection: "row",
             alignItems: "center",
             gap: 12,
-            backgroundColor: "#FFFFFF",
-            shadowColor: "#000",
+            backgroundColor: colors.cardBg,
+            shadowColor: colors.shadow,
             shadowOpacity: 0.05,
             shadowRadius: 4,
             shadowOffset: { width: 0, height: 2 },
             elevation: 2,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
           }}
         >
           <TouchableOpacity
@@ -143,16 +225,22 @@ export default function AiSuggestionScreen() {
               width: 40,
               height: 40,
               borderRadius: 20,
-              backgroundColor: "#F3F4F6",
+              backgroundColor: colors.background,
               alignItems: "center",
               justifyContent: "center",
               borderWidth: 1,
-              borderColor: "#E5E7EB",
+              borderColor: colors.border,
             }}
           >
-            <ArrowLeft size={20} color="#1A1A1A" />
+            <ArrowLeft size={20} color={colors.textPrimary} />
           </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: "600", color: "#1A1A1A" }}>
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "600",
+              color: colors.textPrimary,
+            }}
+          >
             AI Suggestions
           </Text>
         </View>
@@ -173,19 +261,19 @@ export default function AiSuggestionScreen() {
               borderRadius: 60,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(112, 173, 71, 0.1)",
+              backgroundColor: `${colors.primary}15`,
               marginBottom: 32,
               transform: [{ scale: scaleAnim }, { rotate: spin }],
             }}
           >
-            <Sparkles size={60} color="#70AD47" strokeWidth={1.5} />
+            <Sparkles size={60} color={colors.primary} strokeWidth={1.5} />
           </Animated.View>
 
           <Text
             style={{
               fontSize: 24,
               fontWeight: "700",
-              color: "#1A1A1A",
+              color: colors.textPrimary,
               marginBottom: 8,
               textAlign: "center",
             }}
@@ -196,7 +284,7 @@ export default function AiSuggestionScreen() {
           <Text
             style={{
               fontSize: 15,
-              color: "#6B7280",
+              color: colors.textSecondary,
               textAlign: "center",
               maxWidth: "85%",
               lineHeight: 22,
@@ -209,12 +297,109 @@ export default function AiSuggestionScreen() {
     );
   }
 
+  // Error State
+  if (error) {
+    return (
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: colors.background }}
+        edges={["bottom"]}
+      >
+        <StatusBar
+          barStyle={theme === "dark" ? "light-content" : "dark-content"}
+        />
+        <View
+          style={{
+            paddingVertical: 16,
+            paddingHorizontal: 20,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            backgroundColor: colors.cardBg,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.background,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <ArrowLeft size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "600",
+              color: colors.textPrimary,
+            }}
+          >
+            AI Suggestions
+          </Text>
+        </View>
+
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 18,
+              fontWeight: "600",
+              color: colors.textPrimary,
+              marginBottom: 8,
+            }}
+          >
+            Generation Failed
+          </Text>
+          <Text
+            style={{
+              fontSize: 14,
+              color: colors.textSecondary,
+              textAlign: "center",
+              marginBottom: 20,
+            }}
+          >
+            {error}
+          </Text>
+          <TouchableOpacity
+            onPress={handleRegenerate}
+            style={{
+              backgroundColor: colors.primary,
+              borderRadius: 16,
+              paddingVertical: 14,
+              paddingHorizontal: 24,
+            }}
+          >
+            <Text style={{ fontSize: 16, fontWeight: "600", color: "#FFFFFF" }}>
+              Try Again
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Results State
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: "#F8F9FA" }}
+      style={{ flex: 1, backgroundColor: colors.background }}
       edges={["bottom"]}
     >
-      <StatusBar barStyle="dark-content" />
+      <StatusBar
+        barStyle={theme === "dark" ? "light-content" : "dark-content"}
+      />
 
       {/* Header */}
       <View
@@ -224,12 +409,14 @@ export default function AiSuggestionScreen() {
           flexDirection: "row",
           alignItems: "center",
           gap: 12,
-          backgroundColor: "#FFFFFF",
-          shadowColor: "#000",
+          backgroundColor: colors.cardBg,
+          shadowColor: colors.shadow,
           shadowOpacity: 0.05,
           shadowRadius: 4,
           shadowOffset: { width: 0, height: 2 },
           elevation: 2,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
         }}
       >
         <TouchableOpacity
@@ -238,16 +425,18 @@ export default function AiSuggestionScreen() {
             width: 40,
             height: 40,
             borderRadius: 20,
-            backgroundColor: "#F3F4F6",
+            backgroundColor: colors.background,
             alignItems: "center",
             justifyContent: "center",
             borderWidth: 1,
-            borderColor: "#E5E7EB",
+            borderColor: colors.border,
           }}
         >
-          <ArrowLeft size={20} color="#1A1A1A" />
+          <ArrowLeft size={20} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: "600", color: "#1A1A1A" }}>
+        <Text
+          style={{ fontSize: 20, fontWeight: "600", color: colors.textPrimary }}
+        >
           AI Suggestions
         </Text>
       </View>
@@ -257,197 +446,214 @@ export default function AiSuggestionScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 20 }}
         >
-          <Text style={{ fontSize: 14, color: "#6B7280", marginBottom: 20 }}>
+          <Text
+            style={{
+              fontSize: 14,
+              color: colors.textSecondary,
+              marginBottom: 20,
+            }}
+          >
             Based on your preferences, we found{" "}
-            <Text style={{ color: "#70AD47", fontWeight: "600" }}>
-              {suggestedRecipes.length} recipes
+            <Text style={{ color: colors.primary, fontWeight: "600" }}>
+              {recipes.length} recipes
             </Text>{" "}
             for you
           </Text>
 
           {/* Recipe Cards */}
-          {suggestedRecipes.map((recipe, index) => (
-            <TouchableOpacity
-              key={recipe.id}
-              style={{
-                backgroundColor: "#FFFFFF",
-                borderRadius: 20,
-                borderWidth: 1,
-                borderColor: "#E5E7EB",
-                marginBottom: 16,
-                overflow: "hidden",
-                shadowColor: "#000",
-                shadowOpacity: 0.05,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 3,
-              }}
-              onPress={() => router.push(`/recipes/details?id=${recipe.id}`)}
-            >
-              {/* Image */}
-              <View style={{ height: 200, position: "relative" }}>
-                <Image
-                  source={{ uri: recipe.image }}
-                  style={{ width: "100%", height: "100%" }}
-                  resizeMode="cover"
-                />
+          {recipes.map((recipe) => {
+            const difficulty = calculateDifficulty(recipe);
+            const tags = [
+              ...(recipe.diets || []),
+              ...(recipe.dishTypes?.slice(0, 1) || []),
+            ];
 
-                {/* Gradient Overlay */}
-                <View
-                  style={{
-                    position: "absolute",
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: "50%",
-                    backgroundColor: "transparent",
-                  }}
-                />
+            return (
+              <TouchableOpacity
+                key={recipe.id}
+                style={{
+                  backgroundColor: colors.cardBg,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  marginBottom: 16,
+                  overflow: "hidden",
+                  shadowColor: colors.shadow,
+                  shadowOpacity: 0.05,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 2 },
+                  elevation: 3,
+                }}
+                onPress={() => handleRecipePress(recipe)}
+              >
+                {/* Image */}
+                <View style={{ height: 200, position: "relative" }}>
+                  <Image
+                    source={{ uri: recipe.image }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="cover"
+                  />
 
-                {/* Tags */}
-                <View
-                  style={{
-                    position: "absolute",
-                    top: 12,
-                    left: 12,
-                    flexDirection: "row",
-                    gap: 8,
-                  }}
-                >
-                  {recipe.tags.map((tag) => (
+                  {/* Tags */}
+                  {tags.length > 0 && (
                     <View
-                      key={tag}
                       style={{
-                        backgroundColor: "rgba(255, 255, 255, 0.95)",
-                        borderRadius: 12,
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
+                        position: "absolute",
+                        top: 12,
+                        left: 12,
+                        flexDirection: "row",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        maxWidth: "70%",
                       }}
                     >
-                      <Text
-                        style={{
-                          fontSize: 11,
-                          color: "#70AD47",
-                          fontWeight: "600",
-                        }}
-                      >
-                        {tag}
-                      </Text>
+                      {tags.slice(0, 2).map((tag) => (
+                        <View
+                          key={tag}
+                          style={{
+                            backgroundColor: "rgba(255, 255, 255, 0.95)",
+                            borderRadius: 12,
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              color: colors.primary,
+                              fontWeight: "600",
+                              textTransform: "capitalize",
+                            }}
+                          >
+                            {tag}
+                          </Text>
+                        </View>
+                      ))}
                     </View>
-                  ))}
+                  )}
+
+                  {/* Difficulty Badge */}
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: 12,
+                      right: 12,
+                      backgroundColor: "rgba(255, 255, 255, 0.95)",
+                      borderRadius: 12,
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: "#FF9500",
+                        fontWeight: "600",
+                      }}
+                    >
+                      {difficulty}
+                    </Text>
+                  </View>
                 </View>
 
-                {/* Difficulty Badge */}
-                <View
-                  style={{
-                    position: "absolute",
-                    top: 12,
-                    right: 12,
-                    backgroundColor: "rgba(255, 255, 255, 0.95)",
-                    borderRadius: 12,
-                    paddingHorizontal: 10,
-                    paddingVertical: 5,
-                  }}
-                >
+                {/* Content */}
+                <View style={{ padding: 16 }}>
                   <Text
                     style={{
-                      fontSize: 11,
-                      color: "#FF9500",
+                      fontSize: 18,
                       fontWeight: "600",
+                      color: colors.textPrimary,
+                      marginBottom: 12,
                     }}
+                    numberOfLines={2}
                   >
-                    {recipe.difficulty}
+                    {recipe.title}
                   </Text>
-                </View>
-              </View>
 
-              {/* Content */}
-              <View style={{ padding: 16 }}>
-                <Text
-                  style={{
-                    fontSize: 18,
-                    fontWeight: "600",
-                    color: "#1A1A1A",
-                    marginBottom: 12,
-                  }}
-                >
-                  {recipe.title}
-                </Text>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                  }}
-                >
                   <View
                     style={{
                       flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
+                      justifyContent: "space-between",
                     }}
                   >
-                    <Clock size={16} color="#6B7280" />
-                    <Text style={{ fontSize: 13, color: "#6B7280" }}>
-                      {recipe.time}
-                    </Text>
-                  </View>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <Flame size={16} color="#6B7280" />
-                    <Text style={{ fontSize: 13, color: "#6B7280" }}>
-                      {recipe.calories} cal
-                    </Text>
-                  </View>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <Users size={16} color="#6B7280" />
-                    <Text style={{ fontSize: 13, color: "#6B7280" }}>
-                      {recipe.servings} servings
-                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Clock size={16} color={colors.textSecondary} />
+                      <Text
+                        style={{ fontSize: 13, color: colors.textSecondary }}
+                      >
+                        {recipe.readyInMinutes} min
+                      </Text>
+                    </View>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Users size={16} color={colors.textSecondary} />
+                      <Text
+                        style={{ fontSize: 13, color: colors.textSecondary }}
+                      >
+                        {recipe.servings} servings
+                      </Text>
+                    </View>
+                    {recipe.healthScore && (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Flame size={16} color={colors.textSecondary} />
+                        <Text
+                          style={{ fontSize: 13, color: colors.textSecondary }}
+                        >
+                          {Math.round(recipe.healthScore)}%
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+              </TouchableOpacity>
+            );
+          })}
 
           {/* Regenerate Button */}
           <TouchableOpacity
+            onPress={handleRegenerate}
             style={{
               marginTop: 8,
               marginBottom: 24,
               paddingVertical: 16,
               borderRadius: 20,
               borderWidth: 1,
-              borderColor: "#E5E7EB",
-              backgroundColor: "#FFFFFF",
+              borderColor: colors.border,
+              backgroundColor: colors.cardBg,
               alignItems: "center",
               justifyContent: "center",
               flexDirection: "row",
               gap: 8,
-              shadowColor: "#000",
+              shadowColor: colors.shadow,
               shadowOpacity: 0.05,
               shadowRadius: 8,
               shadowOffset: { width: 0, height: 2 },
               elevation: 2,
             }}
           >
-            <Sparkles size={20} color="#70AD47" />
+            <Sparkles size={20} color={colors.primary} />
             <Text
               style={{
                 fontSize: 16,
                 fontWeight: "600",
-                color: "#70AD47",
+                color: colors.primary,
               }}
             >
               Generate New Recipes
