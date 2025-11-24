@@ -20,6 +20,7 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Mail, Lock, User, ChefHat } from "lucide-react-native";
@@ -34,8 +35,10 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
 
-  const { signUpWithEmail, signInWithEmail } = useAuth();
+  const { signUpWithEmail, signInWithEmail, sendPasswordReset } = useAuth();
 
   // Animation refs
   const logoScaleAnim = useRef(new Animated.Value(1)).current;
@@ -169,9 +172,25 @@ export default function LoginScreen() {
         await signInWithEmail(email.trim(), password);
         // Navigation handled by app/index.tsx
       } else {
-        console.log("📝 Attempting signup...");
-        await signUpWithEmail(email.trim(), password);
-        // Navigation handled by app/index.tsx
+        console.log("📝 Attempting signup with name:", name.trim());
+        // Pass name to signup function
+        await signUpWithEmail(email.trim(), password, name.trim());
+
+        // Show email verification alert
+        Alert.alert(
+          "✅ Account Created!",
+          `A verification email has been sent to ${email}.\n\nPlease verify your email before logging in.`,
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                setIsLogin(true); // Switch to login mode
+                setPassword(""); // Clear password
+              },
+            },
+          ]
+        );
+        return; // Don't navigate yet - user must verify email
       }
       router.replace("/(tabs)");
     } catch (error: any) {
@@ -186,6 +205,52 @@ export default function LoginScreen() {
   const handleTabSwitch = (loginMode: boolean) => {
     if (loading) return;
     setIsLogin(loginMode);
+  };
+
+  const handleForgotPassword = async () => {
+    if (!resetEmail.trim()) {
+      Alert.alert("Email Required", "Please enter your email address.");
+      return;
+    }
+
+    if (!validateEmail(resetEmail.trim())) {
+      Alert.alert("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await sendPasswordReset(resetEmail.trim());
+
+      Alert.alert(
+        "✅ Reset Email Sent",
+        `A password reset link has been sent to ${resetEmail}.\n\nPlease check your email and follow the instructions.`,
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setShowForgotPassword(false);
+              setResetEmail("");
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error("❌ Password reset error:", error.code);
+      let errorMessage = "Failed to send reset email. Please try again.";
+
+      if (error.code === "auth/user-not-found") {
+        errorMessage = "No account found with this email address.";
+      } else if (error.code === "auth/invalid-email") {
+        errorMessage = "Invalid email address.";
+      } else if (error.code === "auth/too-many-requests") {
+        errorMessage = "Too many requests. Please try again later.";
+      }
+
+      Alert.alert("Reset Failed", errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -502,10 +567,8 @@ export default function LoginScreen() {
               <View style={{ alignItems: "flex-end", marginBottom: 24 }}>
                 <TouchableOpacity
                   onPress={() => {
-                    Alert.alert(
-                      "Reset Password",
-                      "Password reset functionality will be added in a future update."
-                    );
+                    setResetEmail(email); // Pre-fill with current email
+                    setShowForgotPassword(true);
                   }}
                   activeOpacity={0.7}
                   disabled={loading}
@@ -656,6 +719,146 @@ export default function LoginScreen() {
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={showForgotPassword}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowForgotPassword(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#FFFFFF",
+              borderRadius: 20,
+              padding: 24,
+              width: "100%",
+              maxWidth: 400,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 12,
+              elevation: 8,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 22,
+                fontWeight: "700",
+                color: "#1A1A1A",
+                marginBottom: 8,
+              }}
+            >
+              Reset Password
+            </Text>
+            <Text
+              style={{
+                fontSize: 15,
+                color: "#6B7280",
+                marginBottom: 24,
+                lineHeight: 22,
+              }}
+            >
+              Enter your email address and we&apos;ll send you a link to reset
+              your password.
+            </Text>
+
+            {/* Email Input */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "#F3F4F6",
+                borderRadius: 12,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                marginBottom: 24,
+              }}
+            >
+              <Mail size={20} color="#6B7280" />
+              <TextInput
+                placeholder="Email address"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                editable={!loading}
+                style={{
+                  flex: 1,
+                  marginLeft: 12,
+                  fontSize: 16,
+                  color: "#1A1A1A",
+                  padding: 0,
+                }}
+              />
+            </View>
+
+            {/* Buttons */}
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowForgotPassword(false);
+                  setResetEmail("");
+                }}
+                disabled={loading}
+                style={{
+                  flex: 1,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  backgroundColor: "#F3F4F6",
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "600",
+                    color: "#6B7280",
+                  }}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleForgotPassword}
+                disabled={loading}
+                style={{
+                  flex: 1,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  backgroundColor: loading ? "#9CA3AF" : "#4CAF50",
+                  alignItems: "center",
+                }}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "600",
+                      color: "#FFFFFF",
+                    }}
+                  >
+                    Send Link
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

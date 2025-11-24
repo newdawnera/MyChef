@@ -19,18 +19,27 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  sendEmailVerification,
+  updateProfile,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { SessionManager } from "../lib/sessionManager";
+import { Alert } from "react-native";
 
 interface AuthContextType {
   user: FirebaseUser | null;
   initialising: boolean;
-  signUpWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (
+    email: string,
+    password: string,
+    name: string
+  ) => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signOutUser: () => Promise<void>;
   updateActivity: () => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(
@@ -59,13 +68,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
         );
 
         if (firebaseUser) {
+          // CRITICAL: Check email verification status
+          await firebaseUser.reload(); // Refresh user data
+
+          if (!firebaseUser.emailVerified && !isSigningUp.current) {
+            console.log("⚠️ Email not verified - blocking access");
+            await signOut(auth);
+            await SessionManager.clearSession();
+            setUser(null);
+            if (initialising) {
+              setInitialising(false);
+            }
+            return;
+          }
+
           // Check if this is a new signup in progress
           if (isSigningUp.current) {
             console.log(
-              "🆕 New user signup detected - skipping session validation"
+              "🆕 New user signup detected - will sign out for verification"
             );
-            setUser(firebaseUser);
-            await SessionManager.updateActivity();
+            // Don't set user yet - they need to verify email first
             isSigningUp.current = false;
           }
           // Check if this is a fresh login in progress
@@ -117,13 +139,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signUpWithEmail = async (
     email: string,
-    password: string
+    password: string,
+    name: string
   ): Promise<void> => {
     // Set flag BEFORE creating user
     isSigningUp.current = true;
 
     try {
-      console.log("📝 Creating Firebase user...");
+      console.log("📝 Creating Firebase user with name:", name);
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
@@ -132,39 +155,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const user = userCredential.user;
       console.log("✅ Firebase user created:", user.uid);
 
-      // Create session immediately
-      console.log("⏱️ Creating session...");
-      await SessionManager.updateActivity();
-      console.log("✅ Session created");
+      // Update Auth profile with displayName
+      console.log("👤 Updating Auth profile with displayName...");
+      await updateProfile(user, {
+        displayName: name,
+      });
+      console.log("✅ Auth displayName updated");
 
-      // Create Firestore user document
-      console.log("📄 Creating Firestore user document...");
+      // Send email verification BEFORE creating Firestore doc
+      console.log("📧 Sending email verification...");
+      await sendEmailVerification(user);
+      console.log("✅ Verification email sent to:", email);
+
+      // Create Firestore user document with name field
+      console.log("📄 Creating Firestore user document with name...");
       await setDoc(doc(db, "users", user.uid), {
+        name: name,
         email: user.email,
+        photoURL: null,
         createdAt: serverTimestamp(),
+        emailVerified: false,
       });
-      console.log("✅ Firestore user document created");
+      console.log("✅ Firestore user document created with name:", name);
 
-      // Trigger welcome email
-      console.log("📧 Triggering welcome email...");
-      await setDoc(doc(db, "mail", `welcome-${user.uid}`), {
-        to: user.email,
-        template: {
-          name: "welcomeEmail",
-        },
-      });
-      console.log("✅ Welcome email queued");
-      console.log("✅ Signup complete!");
+      // Sign out immediately - user must verify email first
+      console.log("🚪 Signing out - user must verify email first");
+      await signOut(auth);
+      await SessionManager.clearSession();
 
-      // Don't set initialising here - let onAuthStateChanged handle it
-      // The user state will be set by onAuthStateChanged, triggering navigation
+      console.log("✅ Signup complete! User must verify email before login");
+
+      // Don't set user state - they need to verify email first
     } catch (error: any) {
       // Reset flag on error
       isSigningUp.current = false;
       console.error("❌ Sign up error:", error.code, error.message);
       throw error;
     }
-    // Note: No finally block that sets initialising
   };
 
   const signInWithEmail = async (
@@ -176,7 +203,70 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     try {
       console.log("🔐 Signing in with Firebase...");
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      const user = userCredential.user;
+
+      // CRITICAL: Check if email is verified
+      await user.reload(); // Refresh user data
+
+      if (!user.emailVerified) {
+        console.log("⚠️ Email not verified - blocking login");
+        isLoggingIn.current = false;
+        await signOut(auth);
+
+        // Show alert with resend option
+        Alert.alert(
+          "Email Not Verified",
+          "Please verify your email before logging in. Check your inbox for the verification link.\n\nDidn't receive it?",
+          [
+            {
+              text: "Resend Email",
+              onPress: async () => {
+                try {
+                  // Re-authenticate to resend
+                  const tempCred = await signInWithEmailAndPassword(
+                    auth,
+                    email,
+                    password
+                  );
+                  await sendEmailVerification(tempCred.user);
+                  await signOut(auth);
+                  Alert.alert(
+                    "✅ Email Sent",
+                    "Verification email has been resent. Please check your inbox."
+                  );
+                } catch (error) {
+                  console.error("Failed to resend verification:", error);
+                  Alert.alert(
+                    "Error",
+                    "Failed to resend verification email. Please try again later."
+                  );
+                }
+              },
+            },
+            { text: "OK", style: "cancel" },
+          ]
+        );
+
+        throw new Error("Email not verified");
+      }
+
+      // Email is verified - proceed with login
+      console.log("✅ Email verified - proceeding with login");
+
+      // Update Firestore verification status
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          emailVerified: true,
+          lastLoginAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       // Create/update session immediately
       console.log("⏱️ Creating session...");
@@ -212,6 +302,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const sendPasswordReset = async (email: string): Promise<void> => {
+    try {
+      console.log("📧 Sending password reset email to:", email);
+      await sendPasswordResetEmail(auth, email);
+      console.log("✅ Password reset email sent");
+    } catch (error: any) {
+      console.error("❌ Password reset error:", error.code, error.message);
+      throw error;
+    }
+  };
+
   const value: AuthContextType = {
     user,
     initialising,
@@ -219,6 +320,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signInWithEmail,
     signOutUser,
     updateActivity,
+    sendPasswordReset,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

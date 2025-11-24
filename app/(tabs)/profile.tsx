@@ -1,6 +1,6 @@
 // app/(tabs)/profile.tsx
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,8 @@ import {
   Platform,
   Image,
   Alert,
-  Switch, // 1. Import Switch
+  Switch,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -28,80 +29,319 @@ import {
   Settings as SettingsIcon,
   X,
   Camera,
+  HelpCircle,
 } from "lucide-react-native";
 import { useTheme } from "@/contexts/ThemeContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useUser } from "@/contexts/UserContext";
+import { useSavedRecipes } from "@/contexts/SavedRecipesContext";
+import { useNotifications } from "@/hooks/useNotifications";
+import { HelpSupportModal } from "@/components/HelpSupportModal";
 
-const profileStats = [
-  { label: "Recipes Saved", value: "24", icon: ChefHat },
-  { label: "Recipes Cooked", value: "18", icon: ChefHat },
-  { label: "Favorites", value: "12", icon: Heart },
-];
+// Imports for functionality
+import { signOut, updateProfile } from "firebase/auth";
+import { doc, updateDoc, onSnapshot } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { SessionManager } from "@/lib/sessionManager";
+
+// --- CLOUDINARY CONFIGURATION ---
+// Added .trim() and replace to clean up potentially accidental quotes from .env
+const CLOUDINARY_CLOUD_NAME =
+  process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME?.replace(/"/g, "").trim();
+const CLOUDINARY_UPLOAD_PRESET =
+  process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET?.replace(/"/g, "").trim();
+const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
 
 export default function ProfileScreen() {
   const { colors, theme } = useTheme();
-  const { name, email, avatar, updateProfile, updateAvatar } = useUser();
+  // We mainly need the UID from useUser/Auth to set up the Firestore listener
+  // const { user } = useUser();
+  const { savedRecipes, getFavorites, getCookedRecipes } = useSavedRecipes();
+
+  // Local state for Firestore data (The Source of Truth)
+  const [firestoreUser, setFirestoreUser] = useState<any>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
-  const [tempName, setTempName] = useState(name);
-  const [tempEmail, setTempEmail] = useState(email);
+  // Loading states
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // 2. Define the state for the notification switch
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  // Temp state for editing
+  const [tempName, setTempName] = useState("");
+  const [tempEmail, setTempEmail] = useState("");
 
-  // Function to pick an image
-  const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-    });
+  // --- 1. REAL-TIME FIRESTORE SYNC ---
+  useEffect(() => {
+    if (auth.currentUser?.uid) {
+      const userDocRef = doc(db, "users", auth.currentUser.uid);
 
-    if (!result.canceled) {
-      updateAvatar(result.assets[0].uri);
+      // Subscribe to real-time updates
+      const unsubscribe = onSnapshot(
+        userDocRef,
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const userData = docSnap.data();
+            setFirestoreUser(userData);
+
+            // Sync edit fields if not currently editing
+            if (!showEditModal) {
+              setTempName(userData.name || "");
+              setTempEmail(userData.email || auth.currentUser?.email || "");
+            }
+          }
+          setLoadingUser(false);
+        },
+        (error) => {
+          console.error("Error fetching user data:", error);
+          setLoadingUser(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } else {
+      setLoadingUser(false);
     }
-  };
+  }, [auth.currentUser?.uid, showEditModal]);
+
+  // Use Firestore data for display, fall back to Auth defaults
+  const userName =
+    firestoreUser?.name || auth.currentUser?.displayName || "User";
+  const displayEmail = firestoreUser?.email || auth.currentUser?.email || "";
+  const displayAvatar = firestoreUser?.photoURL || auth.currentUser?.photoURL;
+
+  const { enabled: notificationsEnabled, toggleNotifications } =
+    useNotifications(userName);
 
   const settingsOptions = [
     {
       icon: User,
       label: "Edit Profile",
       value: "",
-      action: () => setShowEditModal(true),
+      action: () => {
+        setTempName(userName);
+        setTempEmail(displayEmail);
+        setShowEditModal(true);
+      },
     },
-    // Removed "On" value since we are using a switch now
-    { icon: Bell, label: "Notifications", value: "", action: () => {} },
+    {
+      icon: Bell,
+      label: "Notifications",
+      value: "",
+      action: () => {}, // Logic handled by Switch
+    },
     {
       icon: Lock,
       label: "Privacy",
       value: "",
-      action: () => {
-        router.push("../privacy");
-      },
+      action: () => router.push("../privacy"),
     },
     {
       icon: SettingsIcon,
       label: "Preferences",
       value: "",
-      action: () => {
-        router.push("../preferences");
-      },
+      action: () => router.push("../preferences"),
+    },
+    {
+      icon: HelpCircle,
+      label: "Help & Support",
+      value: "",
+      action: () => setShowHelpModal(true),
     },
   ];
 
-  const handleSaveProfile = () => {
-    updateProfile(tempName, tempEmail);
-    setShowEditModal(false);
+  // Dynamic stats
+  const profileStats = [
+    {
+      label: "Recipes Saved",
+      value: savedRecipes.length.toString(),
+      icon: ChefHat,
+      filter: "all" as const,
+    },
+    {
+      label: "Recipes Cooked",
+      value: getCookedRecipes().length.toString(),
+      icon: ChefHat,
+      filter: "cooked" as const,
+    },
+    {
+      label: "Favorites",
+      value: getFavorites().length.toString(),
+      icon: Heart,
+      filter: "favorites" as const,
+    },
+  ];
+
+  // --- CLOUDINARY UPLOAD HELPER ---
+  const uploadToCloudinary = async (uri: string) => {
+    if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_UPLOAD_PRESET) {
+      console.error("Missing Cloudinary Config:", {
+        CLOUDINARY_CLOUD_NAME,
+        CLOUDINARY_UPLOAD_PRESET,
+      });
+      throw new Error(
+        "Cloudinary configuration is missing. Please check your .env file."
+      );
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", {
+        uri,
+        type: "image/jpeg",
+        name: "avatar.jpg",
+      } as any);
+
+      // IMPORTANT: These must be appended correctly for unsigned upload
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      formData.append("cloud_name", CLOUDINARY_CLOUD_NAME);
+
+      console.log(
+        `Uploading to ${CLOUDINARY_URL} with preset ${CLOUDINARY_UPLOAD_PRESET}`
+      );
+
+      const res = await fetch(CLOUDINARY_URL, {
+        method: "POST",
+        body: formData,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const result = await res.json();
+
+      if (result.error) {
+        console.error("Cloudinary API Error:", result.error);
+        throw new Error(result.error.message);
+      }
+
+      return result.secure_url;
+    } catch (error) {
+      console.error("Cloudinary upload network error:", error);
+      throw error;
+    }
+  };
+
+  // Function to pick and upload image
+  const pickImage = async () => {
+    // 1. Check permissions
+    const permissionResult =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permissionResult.granted === false) {
+      Alert.alert(
+        "Permission Required",
+        "You need to allow access to your photos to change your avatar."
+      );
+      return;
+    }
+
+    // 2. Pick Image
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5, // Compress for faster upload
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const selectedUri = result.assets[0].uri;
+
+      // 3. Upload Process
+      setIsUploading(true);
+      try {
+        console.log("Starting upload process...");
+        const downloadUrl = await uploadToCloudinary(selectedUri);
+        console.log("Upload success, updating Firestore:", downloadUrl);
+
+        // A. Update Firestore (This will automatically trigger the useEffect to update UI)
+        if (auth.currentUser) {
+          const userRef = doc(db, "users", auth.currentUser.uid);
+          await updateDoc(userRef, {
+            photoURL: downloadUrl,
+          });
+        }
+
+        Alert.alert("Success", "Profile picture updated!");
+      } catch (error: any) {
+        console.error("Avatar update flow error:", error);
+        Alert.alert(
+          "Upload Failed",
+          error.message || "Could not upload image."
+        );
+      } finally {
+        setIsUploading(false);
+      }
+    }
+  };
+
+  // --- SAVE PROFILE HANDLER (Name Only) ---
+  const handleSaveProfile = async () => {
+    if (!tempName.trim()) {
+      Alert.alert("Error", "Name cannot be empty.");
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      // 1. Update Firestore (name field)
+      if (auth.currentUser) {
+        const userRef = doc(db, "users", auth.currentUser.uid);
+        await updateDoc(userRef, {
+          name: tempName.trim(),
+          updatedAt: new Date(),
+        });
+
+        // 2. Update Firebase Auth displayName (modular syntax)
+        await updateProfile(auth.currentUser, {
+          displayName: tempName.trim(),
+        });
+
+        // Note: onSnapshot listener will update firestoreUser automatically
+      }
+
+      setShowEditModal(false);
+      Alert.alert("Success", "Profile updated successfully.");
+    } catch (error) {
+      console.error("Profile save error:", error);
+      Alert.alert("Error", "Failed to save profile. Please try again.");
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   const handleCancelEdit = () => {
-    setTempName(name);
-    setTempEmail(email);
+    setTempName(userName);
+    setTempEmail(displayEmail);
     setShowEditModal(false);
+  };
+
+  // --- LOGOUT HANDLER ---
+  const handleLogout = () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await SessionManager.clearSession();
+            await signOut(auth);
+            router.replace("/login");
+          } catch (error) {
+            console.error("Logout failed:", error);
+            Alert.alert("Error", "Failed to logout. Please try again.");
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -182,6 +422,7 @@ export default function ProfileScreen() {
             >
               <TouchableOpacity
                 onPress={pickImage}
+                disabled={isUploading}
                 style={{
                   marginBottom: 16,
                   position: "relative",
@@ -203,13 +444,18 @@ export default function ProfileScreen() {
                     overflow: "hidden",
                   }}
                 >
-                  {avatar ? (
+                  {isUploading ? (
+                    <ActivityIndicator color="#FFFFFF" size="large" />
+                  ) : displayAvatar ? (
                     <Image
-                      source={{ uri: avatar }}
+                      source={{ uri: displayAvatar }}
                       style={{ width: "100%", height: "100%" }}
                     />
                   ) : (
-                    <User size={48} color="#FFFFFF" strokeWidth={1.5} />
+                    <Image
+                      source={require("@/assets/images/fallback.png")}
+                      style={{ width: "100%", height: "100%" }}
+                    />
                   )}
                 </View>
                 <View
@@ -239,7 +485,7 @@ export default function ProfileScreen() {
                   marginBottom: 4,
                 }}
               >
-                {name}
+                {userName}
               </Text>
 
               <Text
@@ -249,7 +495,7 @@ export default function ProfileScreen() {
                   marginBottom: 20,
                 }}
               >
-                {email}
+                {displayEmail}
               </Text>
 
               <TouchableOpacity
@@ -296,8 +542,15 @@ export default function ProfileScreen() {
                     ? "#FF9500"
                     : "#FF6B6B";
                 return (
-                  <View
+                  <TouchableOpacity
                     key={stat.label}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(tabs)/saved",
+                        params: { filter: stat.filter },
+                      })
+                    }
+                    activeOpacity={0.7}
                     style={{
                       flex: 1,
                       backgroundColor: colors.cardBg,
@@ -349,7 +602,7 @@ export default function ProfileScreen() {
                     >
                       {stat.label}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -376,10 +629,9 @@ export default function ProfileScreen() {
             {settingsOptions.map((option, index) => (
               <TouchableOpacity
                 key={option.label}
-                // 3. Toggle switch on row press if it's the notification row
                 onPress={() => {
                   if (option.label === "Notifications") {
-                    setNotificationsEnabled(!notificationsEnabled);
+                    // Do nothing - switch handles it
                   } else {
                     option.action();
                   }
@@ -430,13 +682,14 @@ export default function ProfileScreen() {
                   {option.label}
                 </Text>
 
-                {/* 4. Conditional Rendering: Switch vs Arrow */}
                 {option.label === "Notifications" ? (
                   <Switch
-                    trackColor={{ false: "#E5E7EB", true: colors.primary }} // Gray off, Green on
+                    trackColor={{ false: "#E5E7EB", true: colors.primary }}
                     thumbColor={"#FFFFFF"}
                     ios_backgroundColor="#E5E7EB"
-                    onValueChange={setNotificationsEnabled}
+                    onValueChange={(val) => {
+                      toggleNotifications(val);
+                    }}
                     value={notificationsEnabled}
                   />
                 ) : (
@@ -473,6 +726,7 @@ export default function ProfileScreen() {
             }}
           >
             <TouchableOpacity
+              onPress={handleLogout}
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -594,6 +848,7 @@ export default function ProfileScreen() {
                 />
               </View>
 
+              {/* READ-ONLY EMAIL FIELD */}
               <View style={{ marginBottom: 24 }}>
                 <Text
                   style={{
@@ -603,24 +858,22 @@ export default function ProfileScreen() {
                     marginBottom: 8,
                   }}
                 >
-                  Email
+                  Email (Read Only)
                 </Text>
                 <TextInput
                   value={tempEmail}
-                  onChangeText={setTempEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
+                  editable={false} // Disable editing
                   style={{
-                    backgroundColor: colors.background,
+                    backgroundColor: theme === "dark" ? "#374151" : "#F3F4F6", // Gray background
                     borderRadius: 16,
                     paddingHorizontal: 16,
                     paddingVertical: 14,
                     fontSize: 15,
-                    color: colors.textPrimary,
+                    color: colors.textSecondary, // Muted text color
                     borderWidth: 1,
                     borderColor: colors.border,
+                    opacity: 0.7,
                   }}
-                  placeholderTextColor={colors.textTertiary}
                 />
               </View>
 
@@ -650,6 +903,7 @@ export default function ProfileScreen() {
 
                 <TouchableOpacity
                   onPress={handleSaveProfile}
+                  disabled={isSavingProfile}
                   style={{
                     flex: 1,
                     backgroundColor: colors.primary,
@@ -661,23 +915,36 @@ export default function ProfileScreen() {
                     shadowRadius: 8,
                     shadowOffset: { width: 0, height: 2 },
                     elevation: 3,
+                    opacity: isSavingProfile ? 0.7 : 1,
                   }}
                 >
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: "600",
-                      color: "#FFFFFF",
-                    }}
-                  >
-                    Save Changes
-                  </Text>
+                  {isSavingProfile ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontWeight: "600",
+                        color: "#FFFFFF",
+                      }}
+                    >
+                      Save Changes
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Help & Support Modal */}
+      <HelpSupportModal
+        visible={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+        userName={userName}
+        userEmail={displayEmail}
+      />
     </SafeAreaView>
   );
 }

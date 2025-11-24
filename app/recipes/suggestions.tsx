@@ -43,6 +43,11 @@ export default function AiSuggestionScreen() {
   const [isGenerating, setIsGenerating] = useState(true);
   const [recipes, setRecipes] = useState<SpoonacularRecipe[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<"initial" | "fallback" | "new">(
+    "initial"
+  );
+  const [currentOffset, setCurrentOffset] = useState(0);
+  const [groqAnalysis, setGroqAnalysis] = useState<any>(null);
 
   // Extract params from navigation
   const searchText = (params.searchText as string) || "";
@@ -102,7 +107,7 @@ export default function AiSuggestionScreen() {
   /**
    * Main recipe generation flow
    */
-  const generateRecipes = async () => {
+  const generateRecipes = async (isNewGeneration = false) => {
     try {
       setIsGenerating(true);
       setError(null);
@@ -110,37 +115,60 @@ export default function AiSuggestionScreen() {
       console.log("🤖 Starting AI recipe generation...");
       console.log("Search:", searchText);
       console.log("Images:", images.length);
+      console.log("Is new generation:", isNewGeneration);
 
-      // Step 1: Analyze with Groq AI
-      const groqResponse = await analyzeRecipeRequest({
-        searchText,
-        images,
-        preferences,
-      });
+      // Step 1: Analyze with Groq AI (only on first load)
+      let groqResponse = groqAnalysis;
 
-      console.log("✅ Groq analysis complete:", groqResponse);
+      if (!groqAnalysis || isNewGeneration) {
+        groqResponse = await analyzeRecipeRequest({
+          searchText,
+          images,
+          preferences,
+        });
+        setGroqAnalysis(groqResponse);
+        console.log("✅ Groq analysis complete:", groqResponse);
+      } else {
+        console.log("♻️ Using cached Groq analysis");
+      }
 
       // Step 2: Convert to Spoonacular parameters
-      const spoonacularParams = groqToSpoonacularParams(groqResponse);
+      // For new generation: use offset or random
+      const offset = isNewGeneration ? currentOffset + 20 : 0;
+      const spoonacularParams = groqToSpoonacularParams(groqResponse, {
+        offset: offset,
+        forceRandom: isNewGeneration && Math.random() > 0.5, // 50% chance of random
+      });
 
       console.log("🔍 Searching Spoonacular with:", spoonacularParams);
 
-      // Step 3: Search recipes
+      // Step 3: Try narrow search first (with preferences)
       const results = await searchRecipes(spoonacularParams);
 
       console.log(`✅ Found ${results.results.length} recipes`);
 
-      // If no results, try a simpler search
+      // Check which strategy was used
+      const strategy = (results as any).searchStrategy;
+      console.log(`📊 Search strategy used: ${strategy}`);
+
       if (results.results.length === 0) {
-        console.log("⚠️ No results, trying simpler search...");
-        const fallbackResults = await searchRecipes({
-          query: searchText || "popular recipes",
-          number: 10,
-          addRecipeInformation: true,
-        });
-        setRecipes(fallbackResults.results as any);
+        // This should never happen now
+        console.log("⚠️ No results found");
+        setRecipes([]);
+        setSearchMode("fallback");
       } else {
         setRecipes(results.results as any);
+
+        // Set search mode based on strategy
+        if (strategy === "full" || strategy === "no-nutrition") {
+          setSearchMode(isNewGeneration ? "new" : "initial");
+        } else {
+          setSearchMode("fallback");
+        }
+
+        if (isNewGeneration) {
+          setCurrentOffset(offset);
+        }
       }
 
       // Fade in recipes
@@ -164,7 +192,7 @@ export default function AiSuggestionScreen() {
         "Failed to generate recipes. Please try again.",
         [
           { text: "Go Back", onPress: () => router.back() },
-          { text: "Retry", onPress: generateRecipes },
+          { text: "Retry", onPress: () => generateRecipes(false) },
         ]
       );
     }
@@ -183,11 +211,12 @@ export default function AiSuggestionScreen() {
   };
 
   /**
-   * Handle regenerate
+   * Handle regenerate - generates NEW recipes
    */
   const handleRegenerate = () => {
     setRecipes([]);
-    generateRecipes();
+    fadeAnim.setValue(0);
+    generateRecipes(true); // Pass true for new generation
   };
 
   // Loading State
@@ -446,6 +475,53 @@ export default function AiSuggestionScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 20 }}
         >
+          {/* Info Banner - Shows filter status */}
+          {searchMode === "initial" && preferences && (
+            <View
+              style={{
+                backgroundColor: colors.primary + "15",
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 16,
+                borderLeftWidth: 3,
+                borderLeftColor: colors.primary,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: colors.textPrimary,
+                  fontWeight: "500",
+                }}
+              >
+                ✓ Results filtered by your dietary preferences
+              </Text>
+            </View>
+          )}
+
+          {searchMode === "fallback" && (
+            <View
+              style={{
+                backgroundColor: "#FFA500" + "15",
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 16,
+                borderLeftWidth: 3,
+                borderLeftColor: "#FFA500",
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: colors.textPrimary,
+                  fontWeight: "500",
+                }}
+              >
+                ℹ️ No exact matches found. Showing similar recipes instead
+              </Text>
+            </View>
+          )}
+
           <Text
             style={{
               fontSize: 14,
@@ -604,7 +680,9 @@ export default function AiSuggestionScreen() {
                         {recipe.servings} servings
                       </Text>
                     </View>
-                    {recipe.healthScore && (
+
+                    {/* FIX: Change recipe.healthScore to !!recipe.healthScore */}
+                    {!!recipe.healthScore && (
                       <View
                         style={{
                           flexDirection: "row",

@@ -16,7 +16,7 @@ import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { UserProvider } from "@/contexts/UserContext";
 import { RecipeProvider } from "@/contexts/RecipeContext";
-
+import { SavedRecipesProvider } from "@/contexts/SavedRecipesContext";
 export const unstable_settings = {
   anchor: "(tabs)",
 };
@@ -105,13 +105,15 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <AuthProvider>
           {/* 2. Wrap the app in UserProvider here */}
-          <UserProvider>
-            <RecipeProvider>
-              <ThemeProvider>
-                <RootLayoutNav />
-              </ThemeProvider>
-            </RecipeProvider>
-          </UserProvider>
+          <SavedRecipesProvider>
+            <UserProvider>
+              <RecipeProvider>
+                <ThemeProvider>
+                  <RootLayoutNav />
+                </ThemeProvider>
+              </RecipeProvider>
+            </UserProvider>
+          </SavedRecipesProvider>
         </AuthProvider>
       </GestureHandlerRootView>
     </SafeAreaProvider>

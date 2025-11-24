@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Dimensions,
   Pressable,
   RefreshControl,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
@@ -18,6 +19,8 @@ import {
   Clock,
   Flame,
   SlidersHorizontal,
+  Search,
+  X,
 } from "lucide-react-native";
 import {
   SPACING,
@@ -34,6 +37,7 @@ interface Recipe {
   nutrition?: {
     nutrients: Array<{ name: string; amount: number }>;
   };
+  pricePerServing?: number;
 }
 
 // Recipe Card Component with Responsive Width
@@ -65,6 +69,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
       style={[
         {
           marginBottom: 16,
+          height: 260, // Fixed height
         },
         { width: cardWidth as any },
       ]}
@@ -72,6 +77,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
       {({ pressed }) => (
         <View
           style={{
+            flex: 1,
             backgroundColor: colors.cardBg,
             borderRadius: SPACING.borderRadius,
             overflow: "hidden",
@@ -83,33 +89,46 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
             transform: [{ scale: pressed ? 0.98 : 1 }],
           }}
         >
-          {/* Recipe Image */}
+          {/* Recipe Image - Fixed height */}
           <Image
             source={{ uri: recipe.image }}
             style={{
               width: "100%",
-              height: cardWidth === "100%" ? 200 : 140,
+              height: 140,
               backgroundColor: colors.background,
             }}
             resizeMode="cover"
           />
 
           {/* Recipe Info */}
-          <View style={{ padding: 12 }}>
+          <View
+            style={{
+              padding: 12,
+              flex: 1,
+              justifyContent: "space-between",
+            }}
+          >
+            {/* Title */}
             <Text
               style={{
-                fontSize: 15,
+                fontSize: 14,
                 fontWeight: "600",
                 color: colors.textPrimary,
-                marginBottom: 8,
+                marginBottom: 4,
+                lineHeight: 20,
               }}
-              numberOfLines={2}
             >
               {recipe.title}
             </Text>
 
             {/* Meta Info */}
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginTop: "auto",
+              }}
+            >
               <Clock size={14} color={colors.textSecondary} />
               <Text
                 style={{
@@ -166,28 +185,32 @@ export default function CategoryResultsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [layoutType, setLayoutType] = useState<"grid" | "list">("grid");
 
+  // Search State
+  const [searchText, setSearchText] = useState("");
+  const [activeSearch, setActiveSearch] = useState(""); // The actual search term used in API
+
   // Dynamic responsive state
   const [screenDimensions, setScreenDimensions] = useState({
     width: Dimensions.get("window").width,
     height: Dimensions.get("window").height,
   });
 
-  // Calculate card width based on screen size and layout type
+  // Debounce Search: Only update activeSearch when user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setActiveSearch(searchText);
+    }, 600); // 600ms delay
+
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  // Calculate card width
   const getCardWidth = () => {
     const { width } = screenDimensions;
-
-    if (layoutType === "list") {
-      return "100%";
-    }
-
-    // Grid layout
-    if (width < 375) {
-      return "100%";
-    } else if (width < 768) {
-      return "48%";
-    } else {
-      return "31%";
-    }
+    if (layoutType === "list") return "100%";
+    if (width < 375) return "100%";
+    else if (width < 768) return "48%";
+    else return "31%";
   };
 
   const cardWidth = getCardWidth();
@@ -208,14 +231,13 @@ export default function CategoryResultsScreen() {
         height: window.height,
       });
     });
-
     return () => subscription?.remove();
   }, []);
 
-  // Fetch recipes on mount
+  // Fetch recipes when activeSearch or category changes
   useEffect(() => {
     fetchRecipes();
-  }, [query]);
+  }, [activeSearch, category]);
 
   const fetchRecipes = async (refresh = false) => {
     try {
@@ -226,15 +248,106 @@ export default function CategoryResultsScreen() {
       }
 
       const API_KEY = process.env.EXPO_PUBLIC_SPOONACULAR_API_KEY;
-      const response = await fetch(
-        `https://api.spoonacular.com/recipes/complexSearch?query=${query}&number=20&addRecipeNutrition=true&apiKey=${API_KEY}`
-      );
-      const data = await response.json();
-      setRecipes(data.results || []);
 
-      console.log(
-        `✅ Loaded ${data.results?.length || 0} recipes for category: ${label}`
-      );
+      // Base URL
+      let baseUrl = `https://api.spoonacular.com/recipes/complexSearch?apiKey=${API_KEY}&number=20&addRecipeNutrition=true`;
+      let filterParams = "";
+
+      // 1. Apply User Search Text (if exists)
+      if (activeSearch.trim()) {
+        filterParams += `&query=${encodeURIComponent(activeSearch)}`;
+      }
+
+      // 2. Apply STRICT Category Filters
+      // We switch based on the category ID to apply the correct API parameter
+      // instead of just appending a generic query string.
+      switch (category) {
+        // --- MEAL TYPES ---
+        case "breakfast":
+          filterParams += "&type=breakfast";
+          break;
+        case "lunch":
+          // Spoonacular doesn't have a strict 'lunch' type, usually main course + salad/soup/sandwich covers it,
+          // but we can query for it or use main course
+          filterParams += "&type=main course";
+          break;
+        case "dinner":
+          filterParams += "&type=main course";
+          break;
+        case "desserts":
+          filterParams += "&type=dessert";
+          break;
+        case "snacks":
+          filterParams += "&type=snack";
+          break;
+        case "drinks":
+          filterParams += "&type=drink";
+          break;
+        case "soup":
+          filterParams += "&type=soup";
+          break;
+        case "appetizers":
+          filterParams += "&type=appetizer";
+          break;
+        case "salad": // Assuming you might have this
+          filterParams += "&type=salad";
+          break;
+
+        // --- DIETS ---
+        case "vegetarian":
+          filterParams += "&diet=vegetarian";
+          break;
+        case "vegan":
+          filterParams += "&diet=vegan";
+          break;
+        case "pescetarian":
+          filterParams += "&diet=pescetarian";
+          break;
+        case "gluten-free":
+          filterParams += "&intolerances=gluten";
+          break;
+        case "dairy-free":
+          filterParams += "&intolerances=dairy";
+          break;
+        case "ketogenic": // If you have this
+          filterParams += "&diet=ketogenic";
+          break;
+
+        // --- SPECIAL CATEGORIES ---
+        case "low-calorie":
+          filterParams += "&maxCalories=500&sort=calories&sortDirection=asc";
+          break;
+        case "high-protein":
+          filterParams += "&minProtein=30&sort=protein&sortDirection=desc";
+          break;
+        case "budget":
+          filterParams += "&sort=price&sortDirection=asc&type=main course";
+          break;
+        case "quick-meals":
+          filterParams += "&maxReadyTime=30";
+          break;
+
+        // --- DEFAULT FALLBACK ---
+        default:
+          // If it's none of the above, fallback to the generic query string passed from the previous screen
+          // Only append if user hasn't typed their own search, OR if we want to combine them
+          if (!activeSearch.trim() && query && query !== "undefined") {
+            filterParams += `&query=${query}`;
+          }
+          break;
+      }
+
+      const finalUrl = `${baseUrl}${filterParams}`;
+      console.log(`🔍 Fetching: ${finalUrl}`);
+
+      const response = await fetch(finalUrl);
+      const data = await response.json();
+
+      if (data.status === "failure") {
+        throw new Error(data.message);
+      }
+
+      setRecipes(data.results || []);
     } catch (error) {
       console.error("❌ Error fetching recipes:", error);
     } finally {
@@ -251,12 +364,10 @@ export default function CategoryResultsScreen() {
     setLayoutType((prev) => (prev === "grid" ? "list" : "grid"));
   };
 
-  // ✅ FIXED: Changed param name from "recipeId" to "id"
   const handleRecipePress = (recipeId: number) => {
-    console.log("📝 Opening recipe with ID:", recipeId);
     router.push({
       pathname: "/recipes/details",
-      params: { id: recipeId }, // ✅ Fixed: Use "id" to match details screen
+      params: { id: recipeId },
     });
   };
 
@@ -267,11 +378,10 @@ export default function CategoryResultsScreen() {
     >
       <StatusBar barStyle="light-content" />
 
-      {/* Header with Category Banner */}
+      {/* Header Container */}
       <View
         style={{
           backgroundColor: headerColor,
-          paddingHorizontal: SPACING.containerPadding,
           paddingTop: 16,
           paddingBottom: 20,
           borderBottomLeftRadius: 24,
@@ -284,14 +394,16 @@ export default function CategoryResultsScreen() {
           zIndex: 1,
         }}
       >
+        {/* Top Row: Back, Title, Layout Toggle */}
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
+            paddingHorizontal: SPACING.containerPadding,
+            marginBottom: 16,
           }}
         >
-          {/* Left side: Back button and title */}
           <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
             <TouchableOpacity
               onPress={() => router.back()}
@@ -332,7 +444,6 @@ export default function CategoryResultsScreen() {
             </View>
           </View>
 
-          {/* Right side: Layout toggle button */}
           <TouchableOpacity
             onPress={toggleLayoutType}
             style={{
@@ -347,6 +458,43 @@ export default function CategoryResultsScreen() {
           >
             <SlidersHorizontal size={20} color="#ffffff" />
           </TouchableOpacity>
+        </View>
+
+        {/* Search Bar (New Addition) */}
+        <View style={{ paddingHorizontal: SPACING.containerPadding }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              backgroundColor: "rgba(255, 255, 255, 0.2)",
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              height: 44,
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.3)",
+            }}
+          >
+            <Search size={18} color="rgba(255, 255, 255, 0.8)" />
+            <TextInput
+              value={searchText}
+              onChangeText={setSearchText}
+              placeholder={`Search in ${label}...`}
+              placeholderTextColor="rgba(255, 255, 255, 0.6)"
+              style={{
+                flex: 1,
+                marginLeft: 8,
+                color: "#ffffff",
+                fontSize: 15,
+                height: "100%",
+              }}
+              returnKeyType="search"
+            />
+            {searchText.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchText("")}>
+                <X size={18} color="rgba(255, 255, 255, 0.8)" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
 
@@ -369,7 +517,6 @@ export default function CategoryResultsScreen() {
           }
         >
           {loading ? (
-            // Loading State
             <View style={{ paddingTop: 60, alignItems: "center" }}>
               <ActivityIndicator size="large" color={headerColor} />
               <Text
@@ -379,11 +526,10 @@ export default function CategoryResultsScreen() {
                   marginTop: 12,
                 }}
               >
-                Loading delicious recipes...
+                Searching...
               </Text>
             </View>
           ) : recipes.length === 0 ? (
-            // Empty State
             <View style={{ paddingTop: 60, alignItems: "center" }}>
               <Text
                 style={{
@@ -400,13 +546,13 @@ export default function CategoryResultsScreen() {
                   fontSize: 14,
                   color: colors.textSecondary,
                   textAlign: "center",
+                  paddingHorizontal: 40,
                 }}
               >
-                Try searching for a different category
+                Try adjusting your search or checking another category.
               </Text>
             </View>
           ) : (
-            // Recipes Grid/List
             <View
               style={{
                 flexDirection: "row",
@@ -427,7 +573,6 @@ export default function CategoryResultsScreen() {
           )}
         </ScrollView>
 
-        {/* Floating Action Info */}
         {!loading && recipes.length > 0 && (
           <View
             style={{
