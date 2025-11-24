@@ -1,9 +1,13 @@
 // app/login/index.tsx
 /**
- * Login/Signup Screen - PRODUCTION VERSION
+ * Login/Signup Screen - SAFE VERSION
  *
- * Reduced console logging for better performance.
- * Only logs important events (auth attempts, errors).
+ * Features:
+ * - Email/Password authentication
+ * - Google Sign-In (only shows if available)
+ * - Animated transitions
+ * - Password reset functionality
+ * - Session management
  */
 
 import React, { useState, useEffect, useRef } from "react";
@@ -21,6 +25,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Mail, Lock, User, ChefHat } from "lucide-react-native";
@@ -38,7 +43,13 @@ export default function LoginScreen() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
-  const { signUpWithEmail, signInWithEmail, sendPasswordReset } = useAuth();
+  const {
+    signUpWithEmail,
+    signInWithEmail,
+    signInWithGoogle,
+    sendPasswordReset,
+    isGoogleSignInAvailable, // ← Check if Google Sign-In is available
+  } = useAuth();
 
   // Animation refs
   const logoScaleAnim = useRef(new Animated.Value(1)).current;
@@ -197,6 +208,52 @@ export default function LoginScreen() {
       console.error("❌ Auth error:", error.code);
       const errorMessage = getErrorMessage(error.code);
       Alert.alert(isLogin ? "Login Failed" : "Sign Up Failed", errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Handle Google Sign-In
+   * Only available if Google Sign-In is properly configured
+   */
+  const handleGoogleSignIn = async () => {
+    // Check if Google Sign-In is available
+    if (!isGoogleSignInAvailable) {
+      Alert.alert(
+        "Google Sign-In Not Available",
+        "Google Sign-In is not configured. Please use email/password to sign in."
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log("🔵 Starting Google Sign-In...");
+
+      await signInWithGoogle();
+
+      console.log("✅ Google Sign-In successful");
+      // Navigation handled by useAuth automatically
+      router.replace("/(tabs)");
+    } catch (error: any) {
+      console.error("❌ Google Sign-In error:", error);
+
+      // Show user-friendly error message
+      let errorMessage = "Failed to sign in with Google. Please try again.";
+
+      if (error.message?.includes("cancelled")) {
+        errorMessage = "Sign in was cancelled.";
+      } else if (error.message?.includes("network")) {
+        errorMessage = "Network error. Please check your connection.";
+      } else if (error.message?.includes("Configuration error")) {
+        errorMessage =
+          "Google Sign-In is not properly configured. Please contact support.";
+      } else if (error.message?.includes("not available")) {
+        errorMessage = error.message;
+      }
+
+      Alert.alert("Google Sign-In Failed", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -632,90 +689,93 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            {/* Or continue with */}
-            <Text
-              style={{
-                marginTop: 24,
-                marginBottom: 16,
-                textAlign: "center",
-                fontSize: 16,
-                color: "#6B7280",
-              }}
-            >
-              or continue with
-            </Text>
+            {/* Google Sign-In Section - Only show if available */}
+            {isGoogleSignInAvailable && (
+              <>
+                {/* OR Divider */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginVertical: 24,
+                  }}
+                >
+                  <View
+                    style={{
+                      flex: 1,
+                      height: 1,
+                      backgroundColor: "#E5E7EB",
+                    }}
+                  />
+                  <Text
+                    style={{
+                      marginHorizontal: 16,
+                      fontSize: 14,
+                      color: "#6B7280",
+                      fontWeight: "500",
+                    }}
+                  >
+                    OR
+                  </Text>
+                  <View
+                    style={{
+                      flex: 1,
+                      height: 1,
+                      backgroundColor: "#E5E7EB",
+                    }}
+                  />
+                </View>
 
-            {/* Social Buttons */}
-            <View
-              style={{
-                flexDirection: "row",
-                gap: 16,
-                marginBottom: 16,
-              }}
-            >
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  backgroundColor: "#FFFFFF",
-                  borderRadius: 16,
-                  paddingVertical: 12,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderWidth: 1,
-                  borderColor: "#E5E7EB",
-                  opacity: loading ? 0.5 : 1,
-                }}
-                activeOpacity={0.7}
-                disabled={loading}
-                onPress={() => {
-                  Alert.alert(
-                    "Coming Soon",
-                    "Google sign-in will be available in the next update!"
-                  );
-                }}
-              >
-                <Text
+                {/* Google Sign-In Button */}
+                <TouchableOpacity
+                  onPress={handleGoogleSignIn}
+                  disabled={loading}
                   style={{
-                    fontSize: 16,
-                    color: "#1A1A1A",
-                    fontWeight: "400",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "#FFFFFF",
+                    paddingVertical: 14,
+                    borderRadius: 16,
+                    borderWidth: 1.5,
+                    borderColor: "#E5E7EB",
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 3,
+                    elevation: 2,
+                    opacity: loading ? 0.5 : 1,
                   }}
+                  activeOpacity={0.7}
                 >
-                  Google
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  backgroundColor: "#FFFFFF",
-                  borderRadius: 16,
-                  paddingVertical: 12,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderWidth: 1,
-                  borderColor: "#E5E7EB",
-                  opacity: loading ? 0.5 : 1,
-                }}
-                activeOpacity={0.7}
-                disabled={loading}
-                onPress={() => {
-                  Alert.alert(
-                    "Coming Soon",
-                    "Facebook sign-in will be available in the next update!"
-                  );
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 16,
-                    color: "#1A1A1A",
-                    fontWeight: "400",
-                  }}
-                >
-                  Facebook
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  {/* Google Logo */}
+                  <Image
+                    source={{
+                      uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg",
+                    }}
+                    style={{ width: 20, height: 20, marginRight: 12 }}
+                  />
+
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "600",
+                      color: "#1F2937",
+                    }}
+                  >
+                    Continue with Google
+                  </Text>
+
+                  {loading && (
+                    <ActivityIndicator
+                      size="small"
+                      color="#4285F4"
+                      style={{ marginLeft: 12 }}
+                    />
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
