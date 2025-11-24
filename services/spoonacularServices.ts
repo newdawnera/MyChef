@@ -294,75 +294,89 @@ function filterSupportedCuisines(cuisineString: string): string | null {
 export async function searchRecipes(
   params: SpoonacularSearchParams
 ): Promise<SpoonacularSearchResponse> {
-  console.log("🔍 Starting search...");
+  console.log("🔍 Starting search with params:", params);
 
   // Check cache first
   const cached = await getCachedResults(params);
   if (cached) {
+    console.log("♻️ Returning cached results");
     return cached;
   }
 
-  // STRATEGY 1: Try with simplified ingredients only (no cuisine, no restrictions)
-  console.log("📡 API Call 1: Simplified ingredients...");
+  // STRATEGY 1: Try with ALL parameters (respect user preferences!)
+  console.log("📡 API Call 1: Full search with all filters...");
 
-  if (params.includeIngredients) {
-    const simplified = simplifyIngredients(params.includeIngredients);
-
-    const strategy1: SpoonacularSearchParams = {
-      includeIngredients: simplified,
-      number: 20,
-      addRecipeInformation: true,
-      sort: "popularity",
-    };
-
-    let result = await trySearch(strategy1);
-
-    if (result.results.length > 0) {
-      console.log(
-        `✅ Found ${result.results.length} recipes with ingredients!`
-      );
-      await cacheResults(params, result);
-      return result;
-    }
-  }
-
-  // STRATEGY 2: Just basic query terms (guaranteed to return results)
-  console.log("📡 API Call 2: Generic search...");
-
-  // Extract main food terms from query
-  const query = params.query || params.includeIngredients || "dinner";
-  const mainTerms =
-    query
-      .toLowerCase()
-      .split(" ")
-      .filter((word) =>
-        [
-          "rice",
-          "chicken",
-          "fish",
-          "beef",
-          "pasta",
-          "soup",
-          "salad",
-          "dinner",
-          "lunch",
-        ].includes(word)
-      )
-      .slice(0, 1)[0] || "dinner";
-
-  const strategy2: SpoonacularSearchParams = {
-    query: mainTerms,
-    number: 20,
-    addRecipeInformation: true,
-    sort: "popularity",
-  };
-
-  let result = await trySearch(strategy2);
+  let result = await trySearch(params);
 
   if (result.results.length > 0) {
-    console.log(`✅ Found ${result.results.length} generic recipes`);
+    console.log(`✅ Found ${result.results.length} recipes with full filters!`);
+    (result as any).searchStrategy = "full";
+    await cacheResults(params, result);
+    return result;
+  }
+
+  // STRATEGY 2: Remove nutritional constraints (keep cuisine, diet, intolerances)
+  console.log("📡 API Call 2: Without nutritional constraints...");
+
+  const strategy2 = { ...params };
+  delete strategy2.maxCalories;
+  delete strategy2.minProtein;
+  delete strategy2.maxCarbs;
+  delete strategy2.maxReadyTime;
+
+  result = await trySearch(strategy2);
+
+  if (result.results.length > 0) {
+    console.log(
+      `✅ Found ${result.results.length} recipes without nutrition filters!`
+    );
+    (result as any).searchStrategy = "no-nutrition";
+    await cacheResults(params, result);
+    return result;
+  }
+
+  // STRATEGY 3: Keep query and cuisine only
+  console.log("📡 API Call 3: Query + cuisine only...");
+
+  const strategy3: SpoonacularSearchParams = {
+    query: params.query,
+    cuisine: params.cuisine,
+    number: params.number || 20,
+    addRecipeInformation: true,
+    sort: params.sort || "popularity",
+    offset: params.offset,
+  };
+
+  result = await trySearch(strategy3);
+
+  if (result.results.length > 0) {
+    console.log(
+      `✅ Found ${result.results.length} recipes with query + cuisine!`
+    );
+    (result as any).searchStrategy = "cuisine-only";
+    await cacheResults(params, result);
+    return result;
+  }
+
+  // STRATEGY 4: Just query
+  console.log("📡 API Call 4: Query only...");
+
+  const strategy4: SpoonacularSearchParams = {
+    query: params.query || "popular recipes",
+    number: params.number || 20,
+    addRecipeInformation: true,
+    sort: params.sort || "popularity",
+    offset: params.offset,
+  };
+
+  result = await trySearch(strategy4);
+
+  if (result.results.length > 0) {
+    console.log(`✅ Found ${result.results.length} recipes with query only!`);
+    (result as any).searchStrategy = "query-only";
   } else {
     console.log("⚠️ No results (this should never happen)");
+    (result as any).searchStrategy = "failed";
   }
 
   await cacheResults(params, result);
@@ -556,19 +570,53 @@ export async function parseIngredients(
  * Convert Groq response to Spoonacular params
  */
 export function groqToSpoonacularParams(
-  groqResponse: any
+  groqResponse: any,
+  options?: { offset?: number; forceRandom?: boolean }
 ): SpoonacularSearchParams {
   const params: SpoonacularSearchParams = {
     number: 20,
     addRecipeInformation: true,
-    sort: "popularity",
+    offset: options?.offset || 0,
   };
 
-  // Query - keep it simple
+  // Smart sort strategy based on search context
+  if (options?.forceRandom) {
+    // For "Generate New" - use random
+    params.sort = "random";
+  } else {
+    // Match sort to search type
+    const query = groqResponse.naturalLanguageQuery?.toLowerCase() || "";
+    const hasCuisine =
+      groqResponse.cuisines && groqResponse.cuisines.length > 0;
+    const hasDiet = groqResponse.diets && groqResponse.diets.length > 0;
+
+    if (query.includes("healthy") || query.includes("nutrition") || hasDiet) {
+      params.sort = "healthiness";
+    } else if (
+      query.includes("quick") ||
+      query.includes("fast") ||
+      groqResponse.maxCookingTime
+    ) {
+      params.sort = "time";
+    } else if (hasCuisine) {
+      params.sort = "meta-score"; // Best for cuisine-specific searches
+    } else {
+      params.sort = "popularity";
+    }
+  }
+
+  // Query - keep it simple but include cuisine hints
   if (groqResponse.naturalLanguageQuery) {
     let query = groqResponse.naturalLanguageQuery;
+    // Remove unsupported cuisines but keep the query
     query = query.replace(/nigerian|west african|ghanaian|kenyan/gi, "");
     params.query = query.trim();
+  }
+
+  // Cuisines - ADD BACK with priority
+  if (groqResponse.cuisines && groqResponse.cuisines.length > 0) {
+    // Use first cuisine for better results
+    params.cuisine = groqResponse.cuisines[0];
   }
 
   // Ingredients - simplify and limit to 2
@@ -579,12 +627,44 @@ export function groqToSpoonacularParams(
     params.includeIngredients = simplified.join(",");
   }
 
-  // NO CUISINE (causes too many 0 results)
-  // NO DIET (causes too many 0 results)
-  // NO NUTRITIONAL TARGETS (causes too many 0 results)
-  // NO TIME LIMITS (causes too many 0 results)
+  // Diets - STRICT filtering based on user preferences
+  if (groqResponse.diets && groqResponse.diets.length > 0) {
+    // Use first diet (most important)
+    params.diet = groqResponse.diets[0].toLowerCase();
+  }
 
-  console.log("📋 Groq → Spoonacular (ultra-simplified):", params);
+  // Intolerances - STRICT filtering (safety!)
+  if (groqResponse.intolerances && groqResponse.intolerances.length > 0) {
+    params.intolerances = groqResponse.intolerances.join(",");
+  }
+
+  // Exclude ingredients - STRICT filtering
+  if (
+    groqResponse.excludeIngredients &&
+    groqResponse.excludeIngredients.length > 0
+  ) {
+    params.excludeIngredients = groqResponse.excludeIngredients.join(",");
+  }
+
+  // Meal type
+  if (groqResponse.mealType) {
+    params.type = groqResponse.mealType;
+  }
+
+  // Cooking time - if specified
+  if (groqResponse.maxCookingTime) {
+    params.maxReadyTime = groqResponse.maxCookingTime;
+  }
+
+  // Nutritional targets - if specified
+  if (groqResponse.nutritionalTargets) {
+    const targets = groqResponse.nutritionalTargets;
+    if (targets.maxCalories) params.maxCalories = targets.maxCalories;
+    if (targets.minProtein) params.minProtein = targets.minProtein;
+    if (targets.maxCarbs) params.maxCarbs = targets.maxCarbs;
+  }
+
+  console.log("📋 Groq → Spoonacular (with preferences):", params);
 
   return params;
 }

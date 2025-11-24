@@ -38,7 +38,6 @@ import {
   ChefHat,
   Bookmark,
   BookmarkCheck,
-  Sparkles,
 } from "lucide-react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import ConfettiCannon from "react-native-confetti-cannon";
@@ -46,7 +45,6 @@ import ConfettiCannon from "react-native-confetti-cannon";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useRecentRecipes } from "@/hooks/useRecentRecipes";
 import { useSavedRecipes } from "@/contexts/SavedRecipesContext";
-import { RecipeAIChatModal } from "@/components/RecipeAIChatModal";
 import { getRecipeDetails } from "@/services/spoonacularServices";
 import { SpoonacularRecipe, calculateDifficulty } from "@/types/recipe";
 
@@ -240,7 +238,6 @@ export default function RecipeDetailsScreen() {
   const { colors, theme } = useTheme();
   const { bottom } = useSafeAreaInsets();
   const windowWidth = Dimensions.get("window").width;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Get contexts
   const { addRecentRecipe } = useRecentRecipes();
@@ -266,7 +263,6 @@ export default function RecipeDetailsScreen() {
   const [activeTab, setActiveTab] = useState<"ingredients" | "instructions">(
     "ingredients"
   );
-  const [showAIChat, setShowAIChat] = useState(false);
 
   // Confetti Ref
   const confettiRef = useRef<ConfettiCannon>(null);
@@ -276,7 +272,6 @@ export default function RecipeDetailsScreen() {
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const aiBtnScale = useRef(new Animated.Value(1)).current;
 
   // Title Opacity Animation (Fades out as you scroll up)
   const titleOpacity = scrollY.interpolate({
@@ -300,26 +295,6 @@ export default function RecipeDetailsScreen() {
       setLoading(false);
     }
   }, [recipeId]);
-
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.15, // Scale up (Increase)
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1, // Scale down (Reduce)
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    pulse.start();
-
-    return () => pulse.stop();
-  }, []);
 
   // Update saved/favorite/cooked status when recipe loads OR when savedRecipes changes
   useEffect(() => {
@@ -485,42 +460,34 @@ export default function RecipeDetailsScreen() {
     }
   };
 
-  // Improved tab change with smooth spring animation
+  // Handle tab change with slide animation
   const handleTabChange = (tab: "ingredients" | "instructions") => {
     if (tab === activeTab) return;
 
     const slideDirection = tab === "instructions" ? -1 : 1;
 
-    // Fade out and slide current content
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 150,
+      Animated.timing(slideAnim, {
+        toValue: slideDirection * 50,
+        duration: 200,
         useNativeDriver: true,
       }),
-      Animated.timing(slideAnim, {
-        toValue: slideDirection * 30,
-        duration: 150,
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start(() => {
-      // Switch tab
       setActiveTab(tab);
-
-      // Reset position for new content
-      slideAnim.setValue(-slideDirection * 30);
-
-      // Fade in and spring new content
       Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 250,
           useNativeDriver: true,
         }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          friction: 8,
-          tension: 40,
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 250,
           useNativeDriver: true,
         }),
       ]).start();
@@ -1295,51 +1262,6 @@ export default function RecipeDetailsScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-
-      {/* Floating AI Chat Button */}
-      <Animated.View
-        style={{
-          position: "absolute",
-          bottom: bottom + 90 || 100,
-          right: 20,
-          zIndex: 10,
-          transform: [{ scale: pulseAnim }], // Apply the pulsing scale
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => {
-            setShowAIChat(true);
-            // We removed the old 'aiBtnScale' bounce here because the pulse handles the motion now
-          }}
-          style={{
-            width: 60,
-            height: 60,
-            borderRadius: 30,
-            backgroundColor: colors.primary,
-            alignItems: "center",
-            justifyContent: "center",
-            // Updated Shadow for "Glow" Effect
-            shadowColor: colors.primary,
-            shadowOpacity: 1, // Stronger shadow
-            shadowRadius: 18, // Wider spread
-            shadowOffset: { width: 0, height: 0 }, // Centered glow
-            elevation: 10,
-          }}
-          activeOpacity={0.8}
-        >
-          <Sparkles size={28} color="#FFFFFF" />
-        </TouchableOpacity>
-      </Animated.View>
-
-      {/* AI Chat Modal */}
-      {recipe && (
-        <RecipeAIChatModal
-          visible={showAIChat}
-          onClose={() => setShowAIChat(false)}
-          recipe={recipe}
-          userPreferences={undefined}
-        />
-      )}
     </View>
   );
 }

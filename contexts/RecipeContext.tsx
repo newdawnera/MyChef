@@ -1,13 +1,14 @@
 // contexts/RecipeContext.tsx
 /**
- * Recipe Context for Global Recipe State
+ * Recipe Context for Global Recipe State (User-Specific)
  *
  * Manages:
- * - Recently viewed recipes (MRU list)
+ * - Recently viewed recipes (MRU list) - PER USER
  * - Saved/favorited recipes
  * - Recipe search history
  *
- * Persists to AsyncStorage for offline access
+ * Persists to AsyncStorage with user-specific keys to prevent data leakage
+ * between users on the same device
  */
 
 import React, {
@@ -19,10 +20,19 @@ import React, {
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SpoonacularRecipe } from "@/types/recipe";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 
-// Storage keys
-const RECENT_RECIPES_KEY = "@mychef_recent_recipes";
+// Storage key prefix - will be combined with user ID
+const RECENT_RECIPES_KEY_PREFIX = "@mychef_recent_recipes";
 const MAX_RECENT_RECIPES = 20; // Keep last 20 viewed recipes
+
+// Helper: Get user-specific storage key
+const getUserStorageKey = (userId: string | null) => {
+  return userId
+    ? `${RECENT_RECIPES_KEY_PREFIX}_${userId}`
+    : RECENT_RECIPES_KEY_PREFIX;
+};
 
 interface RecentRecipeEntry {
   recipe: SpoonacularRecipe;
@@ -48,37 +58,75 @@ interface RecipeProviderProps {
 export function RecipeProvider({ children }: RecipeProviderProps) {
   const [recentRecipes, setRecentRecipes] = useState<RecentRecipeEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   /**
-   * Load recent recipes from storage on mount
+   * Listen for auth state changes and reload recipes when user changes
    */
   useEffect(() => {
-    loadRecentRecipes();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const newUserId = user?.uid || null;
+
+      // If user changed, clear current recipes and reload for new user
+      if (newUserId !== currentUserId) {
+        console.log(
+          "👤 User changed, reloading recipes for:",
+          newUserId || "guest"
+        );
+        setCurrentUserId(newUserId);
+        setRecentRecipes([]); // Clear old user's recipes from memory
+        loadRecentRecipes(newUserId);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUserId]);
+
+  /**
+   * Initial load on mount
+   */
+  useEffect(() => {
+    const userId = auth.currentUser?.uid || null;
+    setCurrentUserId(userId);
+    loadRecentRecipes(userId);
   }, []);
 
   /**
-   * Load recent recipes from AsyncStorage
+   * Load recent recipes from AsyncStorage (user-specific)
    */
-  const loadRecentRecipes = async () => {
+  const loadRecentRecipes = async (userId: string | null = currentUserId) => {
     try {
-      const stored = await AsyncStorage.getItem(RECENT_RECIPES_KEY);
+      const storageKey = getUserStorageKey(userId);
+      const stored = await AsyncStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored) as RecentRecipeEntry[];
         setRecentRecipes(parsed);
+        console.log(
+          `✅ Loaded ${parsed.length} recent recipes for user:`,
+          userId || "guest"
+        );
+      } else {
+        setRecentRecipes([]);
       }
     } catch (error) {
       console.error("Failed to load recent recipes:", error);
+      setRecentRecipes([]);
     } finally {
       setLoading(false);
     }
   };
 
   /**
-   * Save recent recipes to AsyncStorage
+   * Save recent recipes to AsyncStorage (user-specific)
    */
   const saveRecentRecipes = async (recipes: RecentRecipeEntry[]) => {
     try {
-      await AsyncStorage.setItem(RECENT_RECIPES_KEY, JSON.stringify(recipes));
+      const storageKey = getUserStorageKey(currentUserId);
+      await AsyncStorage.setItem(storageKey, JSON.stringify(recipes));
+      console.log(
+        `✅ Saved ${recipes.length} recipes for user:`,
+        currentUserId || "guest"
+      );
     } catch (error) {
       console.error("Failed to save recent recipes:", error);
     }
@@ -113,13 +161,17 @@ export function RecipeProvider({ children }: RecipeProviderProps) {
   };
 
   /**
-   * Clear all recent recipes
+   * Clear all recent recipes for current user
    */
   const clearRecentRecipes = async () => {
     try {
       setRecentRecipes([]);
-      await AsyncStorage.removeItem(RECENT_RECIPES_KEY);
-      console.log("✅ Cleared recent recipes");
+      const storageKey = getUserStorageKey(currentUserId);
+      await AsyncStorage.removeItem(storageKey);
+      console.log(
+        "✅ Cleared recent recipes for user:",
+        currentUserId || "guest"
+      );
     } catch (error) {
       console.error("Failed to clear recent recipes:", error);
     }

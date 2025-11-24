@@ -40,99 +40,6 @@ import { useSavedRecipes } from "@/contexts/SavedRecipesContext";
 
 type FilterType = "all" | "favorites" | "cooked" | "uncooked";
 
-// --- CUSTOM ARROW COMPONENT ---
-const FilterArrow = ({
-  label,
-  icon: Icon,
-  isActive,
-  onPress,
-  index,
-  total,
-  colors,
-  theme,
-}: any) => {
-  const ARROW_WIDTH = 14; // Reduced arrow width slightly to save space
-  const HEIGHT = 42;
-
-  // Colors
-  const activeBg = colors.primary;
-  const inactiveBg = theme === "dark" ? "#374151" : "#E5E7EB";
-
-  const bg = isActive ? activeBg : inactiveBg;
-  const textColor = isActive ? "#FFFFFF" : colors.textSecondary;
-  const iconColor = isActive ? "#FFFFFF" : colors.textSecondary;
-
-  // Check if this is the last item
-  const isLast = index === total - 1;
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.9}
-      onPress={onPress}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        height: HEIGHT,
-        zIndex: total - index,
-        marginLeft: index === 0 ? 0 : -ARROW_WIDTH, // Overlap logic
-        flex: 1, // Allow item to expand to fill available space
-        shadowColor: "#000",
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
-      }}
-    >
-      {/* Main Body Box */}
-      <View
-        style={{
-          backgroundColor: bg,
-          height: HEIGHT,
-          // Adjust padding: Left accounts for the previous arrow's point.
-          // Right is smaller to fit text better.
-          paddingLeft: index === 0 ? 12 : ARROW_WIDTH + 8,
-          paddingRight: 4,
-          justifyContent: "center",
-          alignItems: "center", // Center content horizontally
-          borderTopLeftRadius: index === 0 ? 8 : 0,
-          borderBottomLeftRadius: index === 0 ? 8 : 0,
-          // If last item, round the right corners to make it look contained
-          borderTopRightRadius: isLast ? 8 : 0,
-          borderBottomRightRadius: isLast ? 8 : 0,
-          flex: 1, // Body takes up all space in the flex container
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          {/* Only show icon if there is enough space, or use smaller size */}
-          <Icon size={14} color={iconColor} />
-          <Text
-            style={{ fontSize: 12, fontWeight: "600", color: textColor }}
-            numberOfLines={1}
-            adjustsFontSizeToFit // Ensures text shrinks if it's too long
-          >
-            {label}
-          </Text>
-        </View>
-      </View>
-
-      {/* The Arrow Point - Hide it for the last item so it fits flush */}
-      {!isLast && (
-        <View
-          style={{
-            width: 0,
-            height: 0,
-            borderTopWidth: HEIGHT / 2,
-            borderBottomWidth: HEIGHT / 2,
-            borderLeftWidth: ARROW_WIDTH,
-            borderTopColor: "transparent",
-            borderBottomColor: "transparent",
-            borderLeftColor: bg,
-          }}
-        />
-      )}
-    </TouchableOpacity>
-  );
-};
-
 export default function SavedRecipesScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -146,12 +53,13 @@ export default function SavedRecipesScreen() {
   );
   const [refreshing, setRefreshing] = useState(false);
 
-  // ... (Keep existing onRefresh, getFilteredRecipes, filteredRecipes, getFilterConfig, handlers, renderEmptyState) ...
   /**
    * Handle pull-to-refresh
    */
   const onRefresh = async () => {
     setRefreshing(true);
+    // The context will automatically sync with Firebase
+    // Just wait a moment for the sync to complete
     setTimeout(() => setRefreshing(false), 1000);
   };
 
@@ -161,6 +69,7 @@ export default function SavedRecipesScreen() {
   const getFilteredRecipes = () => {
     let filtered = savedRecipes;
 
+    // Apply category filter
     switch (activeFilter) {
       case "favorites":
         filtered = filtered.filter((r) => r.isFavorite);
@@ -175,12 +84,14 @@ export default function SavedRecipesScreen() {
         break;
     }
 
+    // Apply search filter
     if (search) {
       filtered = filtered.filter((r) =>
         r.recipe.title.toLowerCase().includes(search.toLowerCase())
       );
     }
 
+    // Sort by savedAt (most recent first)
     return filtered.sort((a, b) => b.savedAt - a.savedAt);
   };
 
@@ -190,28 +101,39 @@ export default function SavedRecipesScreen() {
    * Get filter button config
    */
   const getFilterConfig = (filter: FilterType) => {
+    const isActive = activeFilter === filter;
     const configs = {
       all: { label: "All", icon: Bookmark },
       favorites: { label: "Favorites", icon: Heart },
       cooked: { label: "Cooked", icon: ChefHat },
       uncooked: { label: "To Cook", icon: Clock },
     };
-    return configs[filter];
+    return { ...configs[filter], isActive };
   };
 
+  /**
+   * Handle recipe card press
+   */
   const handleRecipePress = (recipeId: number) => {
     router.push(`/recipes/details?id=${recipeId}`);
   };
 
+  /**
+   * Handle favorite toggle
+   */
   const handleToggleFavorite = async (recipeId: number) => {
     await toggleFavorite(recipeId);
   };
 
+  /**
+   * Render empty state
+   */
   const renderEmptyState = () => {
     const messages = {
       all: {
         title: "No Saved Recipes",
-        message: "Start saving recipes you love and they'll appear here!",
+        message:
+          "Start saving recipes you love and they'll appear here for easy access!",
         icon: Bookmark,
       },
       favorites: {
@@ -291,7 +213,13 @@ export default function SavedRecipesScreen() {
             }}
             onPress={() => router.push("/(tabs)")}
           >
-            <Text style={{ fontSize: 15, fontWeight: "600", color: "#FFFFFF" }}>
+            <Text
+              style={{
+                fontSize: 15,
+                fontWeight: "600",
+                color: "#FFFFFF",
+              }}
+            >
               Discover Recipes
             </Text>
           </TouchableOpacity>
@@ -300,6 +228,9 @@ export default function SavedRecipesScreen() {
     );
   };
 
+  /**
+   * Render loading state
+   */
   if (loading) {
     return (
       <SafeAreaView
@@ -310,9 +241,22 @@ export default function SavedRecipesScreen() {
           barStyle={theme === "dark" ? "light-content" : "dark-content"}
         />
         <View
-          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
         >
           <ActivityIndicator size="large" color={colors.primary} />
+          <Text
+            style={{
+              marginTop: 16,
+              fontSize: 15,
+              color: colors.textSecondary,
+            }}
+          >
+            Loading saved recipes...
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -351,6 +295,7 @@ export default function SavedRecipesScreen() {
           }}
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            {/* --- INSERT THIS BUTTON START --- */}
             <TouchableOpacity
               onPress={() => router.back()}
               style={{
@@ -366,6 +311,7 @@ export default function SavedRecipesScreen() {
             >
               <ArrowLeft size={20} color={colors.textPrimary} />
             </TouchableOpacity>
+            {/* --- INSERT THIS BUTTON END --- */}
 
             <Text
               style={{
@@ -380,10 +326,29 @@ export default function SavedRecipesScreen() {
               <ActivityIndicator size="small" color={colors.primary} />
             )}
           </View>
+
+          {/* <View
+            style={{
+              backgroundColor: `${colors.primary}15`,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 12,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 14,
+                fontWeight: "600",
+                color: colors.primary,
+              }}
+            >
+              {savedRecipes.length}
+            </Text>
+          </View> */}
         </View>
 
         {/* Search Bar */}
-        <View style={{ position: "relative", marginBottom: 20 }}>
+        <View style={{ position: "relative", marginBottom: 16 }}>
           <View
             style={{
               position: "absolute",
@@ -414,46 +379,55 @@ export default function SavedRecipesScreen() {
           />
         </View>
 
-        {/* Arrow Process Filter Tabs (Stationary & Aligned) */}
-        <View style={{ height: 50, width: "100%", marginBottom: 8 }}>
-          <View
-            style={{
-              flexDirection: "row",
-              // Center items but allow them to stretch
-              alignItems: "center",
-              // Add horizontal padding to match the search bar above (usually 20px in your design)
-              paddingHorizontal: 0,
-            }}
-          >
-            {(["all", "favorites", "cooked", "uncooked"] as FilterType[]).map(
-              (filter, index, array) => {
-                const config = getFilterConfig(filter);
-                return (
-                  <View
-                    key={filter}
+        {/* Filter Tabs */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 8 }}
+        >
+          {(["all", "favorites", "cooked", "uncooked"] as FilterType[]).map(
+            (filter) => {
+              const config = getFilterConfig(filter);
+              const Icon = config.icon;
+
+              return (
+                <TouchableOpacity
+                  key={filter}
+                  onPress={() => setActiveFilter(filter)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 20,
+                    backgroundColor: config.isActive
+                      ? colors.primary
+                      : colors.background,
+                    borderWidth: 1,
+                    borderColor: config.isActive
+                      ? colors.primary
+                      : colors.border,
+                  }}
+                >
+                  <Icon
+                    size={14}
+                    color={config.isActive ? "#FFFFFF" : colors.textSecondary}
+                  />
+                  <Text
                     style={{
-                      flex: 1,
-                      // COMPENSATION: The last item needs to be slightly wider or shifted
-                      // to visually align with the search bar's right edge because of the overlap.
-                      marginRight: index === array.length - 1 ? 0 : 0,
+                      fontSize: 12,
+                      fontWeight: "500",
+                      color: config.isActive ? "#FFFFFF" : colors.textSecondary,
                     }}
                   >
-                    <FilterArrow
-                      label={config.label}
-                      icon={config.icon}
-                      isActive={activeFilter === filter}
-                      onPress={() => setActiveFilter(filter)}
-                      index={index}
-                      total={array.length}
-                      colors={colors}
-                      theme={theme}
-                    />
-                  </View>
-                );
-              }
-            )}
-          </View>
-        </View>
+                    {config.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }
+          )}
+        </ScrollView>
       </View>
 
       {/* Recipe Grid */}
@@ -473,10 +447,10 @@ export default function SavedRecipesScreen() {
             }
             contentContainerStyle={{
               paddingBottom: 120,
-              paddingTop: 20,
+              paddingTop: 8,
             }}
           >
-            <View style={{ paddingHorizontal: 20 }}>
+            <View style={{ paddingHorizontal: 20, paddingVertical: 20 }}>
               {/* Count */}
               <Text
                 style={{

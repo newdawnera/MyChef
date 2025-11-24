@@ -13,6 +13,7 @@ import {
   Platform,
   Image,
   Alert,
+  Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -23,34 +24,63 @@ import {
   ChefHat,
   LogOut,
   ChevronRight,
+  ArrowLeft,
   Settings as SettingsIcon,
   X,
-  Camera, // New icon for the avatar edit button
+  Camera,
+  HelpCircle,
 } from "lucide-react-native";
 import { useTheme } from "@/contexts/ThemeContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import * as ImagePicker from "expo-image-picker"; // Import ImagePicker
+import * as ImagePicker from "expo-image-picker";
+import { router } from "expo-router";
+import { useUser } from "@/contexts/UserContext";
+import { useSavedRecipes } from "@/contexts/SavedRecipesContext";
+import { useNotifications } from "@/hooks/useNotifications";
+import { HelpSupportModal } from "@/components/HelpSupportModal";
 
-const profileStats = [
-  { label: "Recipes Saved", value: "24", icon: ChefHat },
-  { label: "Recipes Cooked", value: "18", icon: ChefHat },
-  { label: "Favorites", value: "12", icon: Heart },
-];
+// Imports for Logout functionality
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { SessionManager } from "@/lib/sessionManager";
 
 export default function ProfileScreen() {
   const { colors, theme } = useTheme();
+  const { name, email, avatar, updateProfile, updateAvatar } = useUser();
+  const { savedRecipes, getFavorites, getCookedRecipes } = useSavedRecipes();
+  const { enabled: notificationsEnabled, toggleNotifications } =
+    useNotifications(name);
+
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
-  const [userName, setUserName] = useState("Sarah Johnson");
-  const [userEmail, setUserEmail] = useState("sarah.johnson@email.com");
-  const [userAvatar, setUserAvatar] = useState<string | null>(null); // State for avatar image
+  const [tempName, setTempName] = useState(name);
+  const [tempEmail, setTempEmail] = useState(email);
 
-  const [tempName, setTempName] = useState(userName);
-  const [tempEmail, setTempEmail] = useState(userEmail);
+  // Dynamic stats from actual data
+  const profileStats = [
+    {
+      label: "Recipes Saved",
+      value: savedRecipes.length.toString(),
+      icon: ChefHat,
+      filter: "all" as const,
+    },
+    {
+      label: "Recipes Cooked",
+      value: getCookedRecipes().length.toString(),
+      icon: ChefHat,
+      filter: "cooked" as const,
+    },
+    {
+      label: "Favorites",
+      value: getFavorites().length.toString(),
+      icon: Heart,
+      filter: "favorites" as const,
+    },
+  ];
 
   // Function to pick an image
   const pickImage = async () => {
-    // No permissions request is necessary for launching the image library
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -59,8 +89,39 @@ export default function ProfileScreen() {
     });
 
     if (!result.canceled) {
-      setUserAvatar(result.assets[0].uri);
+      updateAvatar(result.assets[0].uri);
     }
+  };
+
+  // --- LOGOUT HANDLER ---
+  const handleLogout = () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            // 1. Clear session data (timestamp etc)
+            await SessionManager.clearSession();
+
+            // 2. Sign out from Firebase
+            await signOut(auth);
+
+            // 3. Redirect to login
+            // Note: If your AuthContext listens to user state, it might auto-redirect,
+            // but calling replace ensures immediate navigation.
+            router.replace("/login");
+          } catch (error) {
+            console.error("Logout failed:", error);
+            Alert.alert("Error", "Failed to logout. Please try again.");
+          }
+        },
+      },
+    ]);
   };
 
   const settingsOptions = [
@@ -70,33 +131,98 @@ export default function ProfileScreen() {
       value: "",
       action: () => setShowEditModal(true),
     },
-    { icon: Bell, label: "Notifications", value: "On", action: () => {} },
-    { icon: Lock, label: "Privacy", value: "", action: () => {} },
-    { icon: SettingsIcon, label: "Preferences", value: "", action: () => {} },
+    // Removed "On" value since we are using a switch now
+    { icon: Bell, label: "Notifications", value: "", action: () => {} },
+    {
+      icon: Lock,
+      label: "Privacy",
+      value: "",
+      action: () => {
+        router.push("../privacy");
+      },
+    },
+    {
+      icon: SettingsIcon,
+      label: "Preferences",
+      value: "",
+      action: () => {
+        router.push("../preferences");
+      },
+    },
+    {
+      icon: HelpCircle,
+      label: "Help & Support",
+      value: "",
+      action: () => setShowHelpModal(true),
+    },
   ];
 
   const handleSaveProfile = () => {
-    setUserName(tempName);
-    setUserEmail(tempEmail);
+    updateProfile(tempName, tempEmail);
     setShowEditModal(false);
   };
 
   const handleCancelEdit = () => {
-    setTempName(userName);
-    setTempEmail(userEmail);
+    setTempName(name);
+    setTempEmail(email);
     setShowEditModal(false);
   };
 
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background }}
+      style={{ flex: 1, backgroundColor: colors.cardBg }}
       edges={["top"]}
     >
       <StatusBar
         barStyle={theme === "dark" ? "light-content" : "dark-content"}
       />
 
-      <View style={{ flex: 1, paddingBottom: 80 }}>
+      {/* Header */}
+      <View
+        style={{
+          paddingVertical: 16,
+          paddingHorizontal: 20,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          backgroundColor: colors.cardBg,
+          shadowColor: colors.shadow,
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 2,
+          zIndex: 1,
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.background,
+            alignItems: "center",
+            justifyContent: "center",
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          <ArrowLeft size={20} color={colors.textPrimary} />
+        </TouchableOpacity>
+        <Text
+          style={{ fontSize: 20, fontWeight: "600", color: colors.textPrimary }}
+        >
+          Profile
+        </Text>
+      </View>
+
+      <View
+        style={{
+          flex: 1,
+          paddingBottom: 80,
+          backgroundColor: colors.background,
+        }}
+      >
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
@@ -118,7 +244,6 @@ export default function ProfileScreen() {
                 borderColor: colors.border,
               }}
             >
-              {/* Interactive Avatar Section */}
               <TouchableOpacity
                 onPress={pickImage}
                 style={{
@@ -139,19 +264,18 @@ export default function ProfileScreen() {
                     shadowRadius: 12,
                     shadowOffset: { width: 0, height: 4 },
                     elevation: 4,
-                    overflow: "hidden", // Ensure image stays in circle
+                    overflow: "hidden",
                   }}
                 >
-                  {userAvatar ? (
+                  {avatar ? (
                     <Image
-                      source={{ uri: userAvatar }}
+                      source={{ uri: avatar }}
                       style={{ width: "100%", height: "100%" }}
                     />
                   ) : (
                     <User size={48} color="#FFFFFF" strokeWidth={1.5} />
                   )}
                 </View>
-                {/* Camera Icon Badge */}
                 <View
                   style={{
                     position: "absolute",
@@ -179,7 +303,7 @@ export default function ProfileScreen() {
                   marginBottom: 4,
                 }}
               >
-                {userName}
+                {name}
               </Text>
 
               <Text
@@ -189,7 +313,7 @@ export default function ProfileScreen() {
                   marginBottom: 20,
                 }}
               >
-                {userEmail}
+                {email}
               </Text>
 
               <TouchableOpacity
@@ -236,8 +360,15 @@ export default function ProfileScreen() {
                     ? "#FF9500"
                     : "#FF6B6B";
                 return (
-                  <View
+                  <TouchableOpacity
                     key={stat.label}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(tabs)/saved",
+                        params: { filter: stat.filter },
+                      })
+                    }
+                    activeOpacity={0.7}
                     style={{
                       flex: 1,
                       backgroundColor: colors.cardBg,
@@ -289,7 +420,7 @@ export default function ProfileScreen() {
                     >
                       {stat.label}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -316,7 +447,14 @@ export default function ProfileScreen() {
             {settingsOptions.map((option, index) => (
               <TouchableOpacity
                 key={option.label}
-                onPress={option.action}
+                onPress={() => {
+                  if (option.label === "Notifications") {
+                    // Do nothing - switch handles it
+                  } else {
+                    option.action();
+                  }
+                }}
+                activeOpacity={option.label === "Notifications" ? 1 : 0.7}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -361,18 +499,39 @@ export default function ProfileScreen() {
                 >
                   {option.label}
                 </Text>
-                {option.value ? (
-                  <Text
+
+                {/* Switch for Notifications, Arrow for others */}
+                {option.label === "Notifications" ? (
+                  <Switch
+                    trackColor={{ false: "#E5E7EB", true: colors.primary }}
+                    thumbColor={"#FFFFFF"}
+                    ios_backgroundColor="#E5E7EB"
+                    onValueChange={(val) => {
+                      toggleNotifications(val);
+                    }}
+                    value={notificationsEnabled}
+                  />
+                ) : (
+                  <View
                     style={{
-                      fontSize: 14,
-                      color: colors.textSecondary,
-                      marginRight: 8,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
                     }}
                   >
-                    {option.value}
-                  </Text>
-                ) : null}
-                <ChevronRight size={20} color={colors.textSecondary} />
+                    {option.value ? (
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: colors.textSecondary,
+                        }}
+                      >
+                        {option.value}
+                      </Text>
+                    ) : null}
+                    <ChevronRight size={20} color={colors.textSecondary} />
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
           </View>
@@ -386,6 +545,7 @@ export default function ProfileScreen() {
             }}
           >
             <TouchableOpacity
+              onPress={handleLogout}
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -430,7 +590,7 @@ export default function ProfileScreen() {
         </ScrollView>
       </View>
 
-      {/* Edit Profile Modal - Updated for Keyboard handling */}
+      {/* Edit Profile Modal */}
       <Modal
         visible={showEditModal}
         transparent={true}
@@ -591,6 +751,14 @@ export default function ProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Help & Support Modal */}
+      <HelpSupportModal
+        visible={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+        userName={name}
+        userEmail={email}
+      />
     </SafeAreaView>
   );
 }
