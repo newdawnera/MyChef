@@ -17,6 +17,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { UserProvider } from "@/contexts/UserContext";
 import { RecipeProvider } from "@/contexts/RecipeContext";
 import { SavedRecipesProvider } from "@/contexts/SavedRecipesContext";
+
 export const unstable_settings = {
   anchor: "(tabs)",
 };
@@ -47,7 +48,7 @@ function RootLayoutNav() {
             headerShown: false, // <-- Ensures no header bar is shown
           }}
         />
-        {/* Prefernces Screen: Must hide header */}
+        {/* Preferences Screen: Must hide header */}
         <Stack.Screen
           name="preferences/index"
           options={{
@@ -98,22 +99,27 @@ function RootLayoutNav() {
 }
 
 // Root component that wraps everything
-// Provider hierarchy: SafeArea → GestureHandler → Auth → Theme → Navigation
+// CORRECT Provider hierarchy:
+// SafeArea → GestureHandler → Auth → User → SavedRecipes → Recipe → Theme → Navigation
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
+        {/* 1. AuthProvider MUST be at the top (other providers need it) */}
         <AuthProvider>
-          {/* 2. Wrap the app in UserProvider here */}
-          <SavedRecipesProvider>
-            <UserProvider>
+          {/* 2. UserProvider (needs auth) */}
+          <UserProvider>
+            {/* 3. SavedRecipesProvider (needs auth and user) */}
+            <SavedRecipesProvider>
+              {/* 4. RecipeProvider */}
               <RecipeProvider>
+                {/* 5. ThemeProvider */}
                 <ThemeProvider>
                   <RootLayoutNav />
                 </ThemeProvider>
               </RecipeProvider>
-            </UserProvider>
-          </SavedRecipesProvider>
+            </SavedRecipesProvider>
+          </UserProvider>
         </AuthProvider>
       </GestureHandlerRootView>
     </SafeAreaProvider>

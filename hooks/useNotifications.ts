@@ -160,7 +160,7 @@ export function useNotifications(userName: string = "Chef") {
 
       // Save notification ID
       await AsyncStorage.setItem(NOTIFICATION_ID_KEY, notificationId);
-      console.log("✅ Single daily notification scheduled for 10 AM");
+      console.log("✅ Single daily notification scheduled for 7 AM");
     } catch (error) {
       console.error("Failed to schedule notification:", error);
     }
