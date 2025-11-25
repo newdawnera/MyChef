@@ -107,7 +107,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
       const syncInterval = setInterval(() => {
         const now = Date.now();
         if (now - lastSync >= SYNC_INTERVAL) {
-          console.log("🔄 30-min sync interval triggered");
+          console.log("ðŸ”„ 30-min sync interval triggered");
           loadSavedRecipes();
         }
       }, SYNC_INTERVAL);
@@ -131,7 +131,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
       if (stored) {
         const parsed = JSON.parse(stored) as SavedRecipeEntry[];
         setSavedRecipes(parsed);
-        console.log(`✅ Loaded ${parsed.length} saved recipes from cache`);
+        console.log(`âœ… Loaded ${parsed.length} saved recipes from cache`);
       }
     } catch (error) {
       console.error("Failed to load saved recipes from cache:", error);
@@ -150,7 +150,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
     }
 
     try {
-      console.log("📥 Loading saved recipes from Firebase...");
+      console.log("ðŸ“¥ Loading saved recipes from Firebase...");
 
       // First, load from cache for instant display
       await loadFromLocalStorage();
@@ -176,7 +176,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
       await saveToLocalStorage(recipes);
       setLastSync(Date.now()); // Track sync time
 
-      console.log(`✅ Loaded ${recipes.length} saved recipes from Firebase`);
+      console.log(`âœ… Loaded ${recipes.length} saved recipes from Firebase`);
     } catch (error) {
       console.error("Failed to load saved recipes from Firebase:", error);
     } finally {
@@ -311,7 +311,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
     try {
       setSyncing(true);
       await saveToFirebase(entry);
-      console.log("✅ Recipe saved:", recipe.title);
+      console.log("âœ… Recipe saved:", recipe.title);
     } catch (error) {
       console.error("Failed to sync save to Firebase:", error);
       // Revert optimistic update on error
@@ -337,7 +337,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
     try {
       setSyncing(true);
       await deleteFromFirebase(recipeId);
-      console.log("✅ Recipe unsaved");
+      console.log("âœ… Recipe unsaved");
     } catch (error) {
       console.error("Failed to sync unsave to Firebase:", error);
       // Revert optimistic update on error
@@ -365,7 +365,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
     try {
       setSyncing(true);
       await saveToFirebase({ ...recipe, isFavorite: !recipe.isFavorite });
-      console.log("✅ Favorite toggled");
+      console.log("âœ… Favorite toggled");
     } catch (error) {
       console.error("Failed to sync favorite toggle:", error);
     } finally {
@@ -398,7 +398,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
         cookedAt: Date.now(),
         notes,
       });
-      console.log("✅ Recipe marked as cooked");
+      console.log("âœ… Recipe marked as cooked");
     } catch (error) {
       console.error("Failed to sync cooked status:", error);
     } finally {
@@ -431,7 +431,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
         cookedAt: undefined,
         notes: undefined,
       });
-      console.log("✅ Recipe unmarked as cooked");
+      console.log("âœ… Recipe unmarked as cooked");
     } catch (error) {
       console.error("Failed to sync uncooked status:", error);
     } finally {
@@ -452,7 +452,7 @@ export function SavedRecipesProvider({ children }: SavedRecipesProviderProps) {
         const snapshot = await getDocs(recipesRef);
         const deletePromises = snapshot.docs.map((doc) => deleteDoc(doc.ref));
         await Promise.all(deletePromises);
-        console.log("✅ All saved recipes cleared");
+        console.log("âœ… All saved recipes cleared");
       } catch (error) {
         console.error("Failed to clear Firebase recipes:", error);
       }

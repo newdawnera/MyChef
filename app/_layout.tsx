@@ -13,7 +13,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 // Import your custom theme provider
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 // Import the new auth provider
-import { AuthProvider } from "@/hooks/useAuth";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { UserProvider } from "@/contexts/UserContext";
 import { RecipeProvider } from "@/contexts/RecipeContext";
 import { SavedRecipesProvider } from "@/contexts/SavedRecipesContext";

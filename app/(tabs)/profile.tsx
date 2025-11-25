@@ -117,16 +117,18 @@ export default function ProfileScreen() {
   const { enabled: notificationsEnabled, toggleNotifications } =
     useNotifications(userName);
 
+  const handleOpenEditModal = () => {
+    setTempName(userName);
+    setTempEmail(displayEmail);
+    setShowEditModal(true);
+  };
+
   const settingsOptions = [
     {
       icon: User,
       label: "Edit Profile",
       value: "",
-      action: () => {
-        setTempName(userName);
-        setTempEmail(displayEmail);
-        setShowEditModal(true);
-      },
+      action: handleOpenEditModal,
     },
     {
       icon: Bell,
@@ -499,7 +501,7 @@ export default function ProfileScreen() {
               </Text>
 
               <TouchableOpacity
-                onPress={() => setShowEditModal(true)}
+                onPress={handleOpenEditModal}
                 style={{
                   backgroundColor: colors.primary,
                   paddingHorizontal: 24,
