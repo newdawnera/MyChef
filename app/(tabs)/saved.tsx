@@ -369,8 +369,8 @@ export default function SavedRecipesScreen() {
 
             <Text
               style={{
-                fontSize: 24,
-                fontWeight: "700",
+                fontSize: 20,
+                fontWeight: "600",
                 color: colors.textPrimary,
               }}
             >
@@ -383,7 +383,7 @@ export default function SavedRecipesScreen() {
         </View>
 
         {/* Search Bar */}
-        <View style={{ position: "relative", marginBottom: 20 }}>
+        <View style={{ position: "relative", marginBottom: 40 }}>
           <View
             style={{
               position: "absolute",
@@ -415,7 +415,7 @@ export default function SavedRecipesScreen() {
         </View>
 
         {/* Arrow Process Filter Tabs (Stationary & Aligned) */}
-        <View style={{ height: 50, width: "100%", marginBottom: 8 }}>
+        <View style={{ height: 20, width: "100%", marginBottom: 8 }}>
           <View
             style={{
               flexDirection: "row",

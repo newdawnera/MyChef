@@ -1,16 +1,11 @@
 // app/login/index.tsx
 /**
- * Login/Signup Screen - SAFE VERSION
+ * Login/Signup Screen with Fully Functional Google Sign-In
  *
- * Features:
- * - Email/Password authentication
- * - Google Sign-In (only shows if available)
- * - Animated transitions
- * - Password reset functionality
- * - Session management
+ * PRODUCTION READY - Properly styled Google button with correct branding
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useContext } from "react";
 import {
   View,
   Text,
@@ -25,14 +20,37 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
-  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Mail, Lock, User, ChefHat } from "lucide-react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "@/hooks/useAuth";
+import { AuthContext } from "@/contexts/AuthContext";
+import Svg, { Path } from "react-native-svg";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// Google Logo SVG Component
+const GoogleLogo = ({ size = 20 }: { size?: number }) => (
+  <Svg width={size} height={size} viewBox="0 0 48 48">
+    <Path
+      fill="#EA4335"
+      d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+    />
+    <Path
+      fill="#4285F4"
+      d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+    />
+    <Path
+      fill="#FBBC05"
+      d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+    />
+    <Path
+      fill="#34A853"
+      d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+    />
+    <Path fill="none" d="M0 0h48v48H0z" />
+  </Svg>
+);
 
 export default function LoginScreen() {
   const [isLogin, setIsLogin] = useState(true);
@@ -40,21 +58,28 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
+
+  const authContext = useContext(AuthContext);
+  if (!authContext) {
+    throw new Error("LoginScreen must be used within AuthProvider");
+  }
 
   const {
     signUpWithEmail,
     signInWithEmail,
     signInWithGoogle,
     sendPasswordReset,
-    isGoogleSignInAvailable, // ← Check if Google Sign-In is available
-  } = useAuth();
+    isGoogleSignInAvailable,
+  } = authContext;
 
   // Animation refs
   const logoScaleAnim = useRef(new Animated.Value(1)).current;
   const formOpacity = useRef(new Animated.Value(1)).current;
   const formTranslateX = useRef(new Animated.Value(0)).current;
+  const googleButtonScale = useRef(new Animated.Value(1)).current;
 
   const router = useRouter();
 
@@ -78,7 +103,7 @@ export default function LoginScreen() {
     animate();
   }, []);
 
-  // Bi-directional slide-in transition when switching between login/signup
+  // Form transition animation
   useEffect(() => {
     const exitDirection = isLogin ? 300 : -300;
     const enterDirection = isLogin ? -300 : 300;
@@ -86,12 +111,12 @@ export default function LoginScreen() {
     Animated.parallel([
       Animated.timing(formOpacity, {
         toValue: 0,
-        duration: 50,
+        duration: 150,
         useNativeDriver: true,
       }),
       Animated.timing(formTranslateX, {
         toValue: exitDirection,
-        duration: 50,
+        duration: 150,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -100,7 +125,7 @@ export default function LoginScreen() {
       Animated.parallel([
         Animated.timing(formOpacity, {
           toValue: 1,
-          duration: 50,
+          duration: 200,
           useNativeDriver: true,
         }),
         Animated.spring(formTranslateX, {
@@ -139,7 +164,7 @@ export default function LoginScreen() {
       case "auth/network-request-failed":
         return "Network error. Please check your connection.";
       case "auth/invalid-credential":
-        return "Invalid email or password / account not found. Please try again.";
+        return "Invalid email or password. Please try again.";
       default:
         return `Authentication error: ${errorCode}`;
     }
@@ -179,15 +204,13 @@ export default function LoginScreen() {
 
     try {
       if (isLogin) {
-        console.log("🔐 Attempting login...");
+        console.log("🔐 Attempting email login...");
         await signInWithEmail(email.trim(), password);
-        // Navigation handled by app/index.tsx
+        console.log("✅ Email login successful");
       } else {
-        console.log("📝 Attempting signup with name:", name.trim());
-        // Pass name to signup function
+        console.log("📝 Attempting signup...");
         await signUpWithEmail(email.trim(), password, name.trim());
 
-        // Show email verification alert
         Alert.alert(
           "✅ Account Created!",
           `A verification email has been sent to ${email}.\n\nPlease verify your email before logging in.`,
@@ -195,18 +218,22 @@ export default function LoginScreen() {
             {
               text: "OK",
               onPress: () => {
-                setIsLogin(true); // Switch to login mode
-                setPassword(""); // Clear password
+                setIsLogin(true);
+                setPassword("");
               },
             },
           ]
         );
-        return; // Don't navigate yet - user must verify email
+        setLoading(false);
+        return;
       }
+
+      // Navigate to main app
+      console.log("🚀 Navigating to main app...");
       router.replace("/(tabs)");
     } catch (error: any) {
-      console.error("❌ Auth error:", error.code);
-      const errorMessage = getErrorMessage(error.code);
+      console.error("❌ Email auth error:", error);
+      const errorMessage = getErrorMessage(error.code || error.message);
       Alert.alert(isLogin ? "Login Failed" : "Sign Up Failed", errorMessage);
     } finally {
       setLoading(false);
@@ -215,52 +242,90 @@ export default function LoginScreen() {
 
   /**
    * Handle Google Sign-In
-   * Only available if Google Sign-In is properly configured
+   * Fully functional with proper error handling
    */
   const handleGoogleSignIn = async () => {
+    // Animate button press
+    Animated.sequence([
+      Animated.timing(googleButtonScale, {
+        toValue: 0.95,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(googleButtonScale, {
+        toValue: 1,
+        friction: 3,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
     // Check if Google Sign-In is available
     if (!isGoogleSignInAvailable) {
       Alert.alert(
         "Google Sign-In Not Available",
-        "Google Sign-In is not configured. Please use email/password to sign in."
+        "Google Sign-In is not properly configured. Please contact support or use email/password to sign in.",
+        [{ text: "OK" }]
       );
       return;
     }
 
-    try {
-      setLoading(true);
-      console.log("🔵 Starting Google Sign-In...");
+    setGoogleLoading(true);
 
+    try {
+      console.log("🔵 Starting Google Sign-In flow...");
+
+      // Call Google Sign-In
       await signInWithGoogle();
 
-      console.log("✅ Google Sign-In successful");
-      // Navigation handled by useAuth automatically
+      console.log("✅ Google Sign-In successful!");
+
+      // Navigate to main app
+      console.log("🚀 Navigating to main app...");
       router.replace("/(tabs)");
     } catch (error: any) {
       console.error("❌ Google Sign-In error:", error);
 
-      // Show user-friendly error message
-      let errorMessage = "Failed to sign in with Google. Please try again.";
+      // Friendly error messages
+      let title = "Google Sign-In Failed";
+      let message = "An unexpected error occurred. Please try again.";
 
-      if (error.message?.includes("cancelled")) {
-        errorMessage = "Sign in was cancelled.";
-      } else if (error.message?.includes("network")) {
-        errorMessage = "Network error. Please check your connection.";
-      } else if (error.message?.includes("Configuration error")) {
-        errorMessage =
-          "Google Sign-In is not properly configured. Please contact support.";
-      } else if (error.message?.includes("not available")) {
-        errorMessage = error.message;
+      if (
+        error.message?.includes("cancelled") ||
+        error.message?.includes("SIGN_IN_CANCELLED")
+      ) {
+        // User cancelled - don't show error
+        console.log("ℹ️ User cancelled Google Sign-In");
+        setGoogleLoading(false);
+        return;
+      } else if (
+        error.message?.includes("network") ||
+        error.message?.includes("Network")
+      ) {
+        message =
+          "Network error. Please check your internet connection and try again.";
+      } else if (error.message?.includes("PLAY_SERVICES_NOT_AVAILABLE")) {
+        title = "Google Play Services Required";
+        message = "Please update Google Play Services to use Google Sign-In.";
+      } else if (error.message?.includes("DEVELOPER_ERROR")) {
+        message = "Configuration error. Please contact support.";
+      } else if (
+        error.message?.includes("in progress") ||
+        error.message?.includes("IN_PROGRESS")
+      ) {
+        message = "A sign-in attempt is already in progress. Please wait.";
+      } else if (error.message) {
+        message = error.message;
       }
 
-      Alert.alert("Google Sign-In Failed", errorMessage);
+      Alert.alert(title, message, [{ text: "OK" }]);
     } finally {
-      setLoading(false);
+      setGoogleLoading(false);
     }
   };
 
   const handleTabSwitch = (loginMode: boolean) => {
-    if (loading) return;
+    if (loading || googleLoading) return;
     setIsLogin(loginMode);
   };
 
@@ -293,7 +358,7 @@ export default function LoginScreen() {
         ]
       );
     } catch (error: any) {
-      console.error("❌ Password reset error:", error.code);
+      console.error("❌ Password reset error:", error);
       let errorMessage = "Failed to send reset email. Please try again.";
 
       if (error.code === "auth/user-not-found") {
@@ -413,7 +478,7 @@ export default function LoginScreen() {
             <TouchableOpacity
               onPress={() => handleTabSwitch(true)}
               activeOpacity={0.8}
-              disabled={loading}
+              disabled={loading || googleLoading}
               style={{
                 flex: 1,
                 paddingVertical: 12,
@@ -426,7 +491,7 @@ export default function LoginScreen() {
                 shadowOffset: { width: 0, height: 2 },
                 shadowRadius: 8,
                 elevation: isLogin ? 4 : 0,
-                opacity: loading ? 0.5 : 1,
+                opacity: loading || googleLoading ? 0.5 : 1,
               }}
             >
               <Text
@@ -442,7 +507,7 @@ export default function LoginScreen() {
             <TouchableOpacity
               onPress={() => handleTabSwitch(false)}
               activeOpacity={0.8}
-              disabled={loading}
+              disabled={loading || googleLoading}
               style={{
                 flex: 1,
                 paddingVertical: 12,
@@ -455,7 +520,7 @@ export default function LoginScreen() {
                 shadowOffset: { width: 0, height: 2 },
                 shadowRadius: 8,
                 elevation: !isLogin ? 4 : 0,
-                opacity: loading ? 0.5 : 1,
+                opacity: loading || googleLoading ? 0.5 : 1,
               }}
             >
               <Text
@@ -508,7 +573,7 @@ export default function LoginScreen() {
                     placeholderTextColor="#9CA3AF"
                     value={name}
                     onChangeText={setName}
-                    editable={!loading}
+                    editable={!loading && !googleLoading}
                     style={{
                       flex: 1,
                       fontSize: 16,
@@ -553,7 +618,7 @@ export default function LoginScreen() {
                   autoComplete="email"
                   value={email}
                   onChangeText={setEmail}
-                  editable={!loading}
+                  editable={!loading && !googleLoading}
                   style={{
                     flex: 1,
                     fontSize: 16,
@@ -596,7 +661,7 @@ export default function LoginScreen() {
                   autoComplete={isLogin ? "password" : "password-new"}
                   value={password}
                   onChangeText={setPassword}
-                  editable={!loading}
+                  editable={!loading && !googleLoading}
                   style={{
                     flex: 1,
                     fontSize: 16,
@@ -624,16 +689,16 @@ export default function LoginScreen() {
               <View style={{ alignItems: "flex-end", marginBottom: 24 }}>
                 <TouchableOpacity
                   onPress={() => {
-                    setResetEmail(email); // Pre-fill with current email
+                    setResetEmail(email);
                     setShowForgotPassword(true);
                   }}
                   activeOpacity={0.7}
-                  disabled={loading}
+                  disabled={loading || googleLoading}
                 >
                   <Text
                     style={{
                       fontSize: 16,
-                      color: loading ? "#9CA3AF" : "#4CAF50",
+                      color: loading || googleLoading ? "#9CA3AF" : "#4CAF50",
                       fontWeight: "400",
                     }}
                   >
@@ -646,21 +711,23 @@ export default function LoginScreen() {
             {/* Main Submit Button */}
             <TouchableOpacity
               style={{
-                backgroundColor: loading ? "#9CA3AF" : "#4CAF50",
+                backgroundColor:
+                  loading || googleLoading ? "#9CA3AF" : "#4CAF50",
                 borderRadius: 16,
                 paddingVertical: 16,
                 alignItems: "center",
                 justifyContent: "center",
-                shadowColor: loading ? "#9CA3AF" : "#4CAF50",
+                shadowColor: loading || googleLoading ? "#9CA3AF" : "#4CAF50",
                 shadowOpacity: 0.4,
                 shadowOffset: { width: 0, height: 4 },
                 shadowRadius: 12,
                 elevation: 8,
                 flexDirection: "row",
+                marginBottom: 24,
               }}
               onPress={handleSubmit}
               activeOpacity={0.9}
-              disabled={loading}
+              disabled={loading || googleLoading}
             >
               {loading ? (
                 <>
@@ -689,92 +756,109 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            {/* Google Sign-In Section - Only show if available */}
-            {isGoogleSignInAvailable && (
-              <>
-                {/* OR Divider */}
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    marginVertical: 24,
-                  }}
-                >
-                  <View
-                    style={{
-                      flex: 1,
-                      height: 1,
-                      backgroundColor: "#E5E7EB",
-                    }}
-                  />
-                  <Text
-                    style={{
-                      marginHorizontal: 16,
-                      fontSize: 14,
-                      color: "#6B7280",
-                      fontWeight: "500",
-                    }}
-                  >
-                    OR
-                  </Text>
-                  <View
-                    style={{
-                      flex: 1,
-                      height: 1,
-                      backgroundColor: "#E5E7EB",
-                    }}
-                  />
-                </View>
+            {/* OR Divider */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 24,
+              }}
+            >
+              <View
+                style={{
+                  flex: 1,
+                  height: 1,
+                  backgroundColor: "#E5E7EB",
+                }}
+              />
+              <Text
+                style={{
+                  marginHorizontal: 16,
+                  fontSize: 14,
+                  color: "#6B7280",
+                  fontWeight: "500",
+                }}
+              >
+                OR
+              </Text>
+              <View
+                style={{
+                  flex: 1,
+                  height: 1,
+                  backgroundColor: "#E5E7EB",
+                }}
+              />
+            </View>
 
-                {/* Google Sign-In Button */}
-                <TouchableOpacity
-                  onPress={handleGoogleSignIn}
-                  disabled={loading}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: "#FFFFFF",
-                    paddingVertical: 14,
-                    borderRadius: 16,
-                    borderWidth: 1.5,
-                    borderColor: "#E5E7EB",
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 3,
-                    elevation: 2,
-                    opacity: loading ? 0.5 : 1,
-                  }}
-                  activeOpacity={0.7}
-                >
-                  {/* Google Logo */}
-                  <Image
-                    source={{
-                      uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg",
-                    }}
-                    style={{ width: 20, height: 20, marginRight: 12 }}
-                  />
+            {/* Google Sign-In Button - PRODUCTION READY */}
+            <Animated.View
+              style={{ transform: [{ scale: googleButtonScale }] }}
+            >
+              <TouchableOpacity
+                onPress={handleGoogleSignIn}
+                disabled={loading || googleLoading}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "#FFFFFF",
+                  paddingVertical: 16,
+                  borderRadius: 16,
+                  borderWidth: 1.5,
+                  borderColor: "#E5E7EB",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 8,
+                  elevation: 3,
+                  opacity: loading || googleLoading ? 0.6 : 1,
+                }}
+                activeOpacity={0.8}
+              >
+                {googleLoading ? (
+                  <>
+                    <ActivityIndicator size="small" color="#4285F4" />
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontWeight: "600",
+                        color: "#5F6368",
+                        marginLeft: 12,
+                      }}
+                    >
+                      Signing in...
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <GoogleLogo size={20} />
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontWeight: "600",
+                        color: "#3C4043",
+                        marginLeft: 12,
+                      }}
+                    >
+                      Continue with Google
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
 
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: "600",
-                      color: "#1F2937",
-                    }}
-                  >
-                    Continue with Google
-                  </Text>
-
-                  {loading && (
-                    <ActivityIndicator
-                      size="small"
-                      color="#4285F4"
-                      style={{ marginLeft: 12 }}
-                    />
-                  )}
-                </TouchableOpacity>
-              </>
+            {/* Helper Text for Google Sign-In */}
+            {!isGoogleSignInAvailable && (
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: "#EF4444",
+                  textAlign: "center",
+                  marginTop: 12,
+                }}
+              >
+                ⚠️ Google Sign-In configuration incomplete
+              </Text>
             )}
           </Animated.View>
         </ScrollView>

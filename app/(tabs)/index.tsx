@@ -215,6 +215,7 @@ const RecipeCarouselItemComponent: React.FC<RecipeCarouselItemProps> = ({
           backgroundColor: colors.cardBg, // White/Card background
           borderRadius: 16,
           overflow: "hidden", // Clips image to border radius
+          height: 240,
           // Shadow for iOS
           shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: 4 },
@@ -231,17 +232,23 @@ const RecipeCarouselItemComponent: React.FC<RecipeCarouselItemProps> = ({
           source={{ uri: recipe.recipe?.image }}
           style={{
             width: "100%",
-            height: 120, // Slightly shorter image to fit card style
+            height: 140, // Slightly shorter image to fit card style
+            marginTop: -14,
+            // 👇 You also need to pull the sides out if the parent has padding
+            // marginHorizontal: -16,
+            // 👇 Increase width to compensate for the pull
+
             backgroundColor: colors.background,
           }}
           resizeMode="cover"
         />
 
         {/* Recipe Info Container */}
-        <View style={{ padding: 12 }}>
+        <View style={{ padding: 12, flex: 1, justifyContent: "space-between" }}>
           <Text
             style={{
               fontSize: 14,
+
               fontWeight: "600",
               color: colors.textPrimary,
               marginBottom: 8,

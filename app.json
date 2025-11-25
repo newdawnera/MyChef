@@ -11,11 +11,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mychef2.app",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "GoogleService-Info.plist"
     },
     "android": {
       "package": "com.mychef2.app",
-      "googleServicesFile": "./google-services.json",
+      "googleServicesFile": "google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -56,6 +56,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "be666447-482c-4c66-9752-c5ddda05e865"
+      }
     }
   }
 }

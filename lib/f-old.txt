@@ -1,22 +1,31 @@
 // lib/firebase.ts
 /**
- * Firebase Configuration & Initialization with AsyncStorage Persistence
+ * Firebase Configuration & Initialization
  *
- * UPDATED: Added AsyncStorage persistence for auth state
+ * IMPORTANT: You need to add your Firebase config values here!
+ *
+ * HOW TO GET YOUR CONFIG:
+ * 1. Go to: https://console.firebase.google.com/
+ * 2. Select your MyChef project (or create one)
+ * 3. Click the gear icon ⚙️ → Project Settings
+ * 4. Scroll to "Your apps" section
+ * 5. Click on your web app (or add one if none exist)
+ * 6. Copy the firebaseConfig object values
+ * 7. Paste them below (replace the placeholder values)
+ *
+ * OPTION 1: Hardcode values here (quickest for testing)
+ * OPTION 2: Use .env file with EXPO_PUBLIC_ prefix (better for production)
  */
 
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
-import {
-  initializeAuth,
-  getReactNativePersistence,
-  getAuth,
-  Auth,
-} from "firebase/auth";
+import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /**
  * Firebase configuration
+ *
+ * REPLACE THESE VALUES WITH YOUR ACTUAL FIREBASE CONFIG!
+ * Get them from: Firebase Console → Project Settings → General → Your apps
  */
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "YOUR_API_KEY_HERE",
@@ -35,6 +44,7 @@ const firebaseConfig = {
 
 /**
  * Validate Firebase configuration
+ * This will throw an error if you haven't updated the config yet
  */
 if (
   firebaseConfig.apiKey === "YOUR_API_KEY_HERE" ||
@@ -75,33 +85,16 @@ if (getApps().length === 0) {
 }
 
 /**
- * Firebase Authentication instance with AsyncStorage persistence
- * This ensures users stay logged in after closing the app
+ * Firebase Authentication instance
  */
-let auth: Auth;
-try {
-  auth = initializeAuth(firebaseApp, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
-  console.log("✅ Firebase Auth initialized with AsyncStorage persistence");
-} catch (error: any) {
-  // If auth is already initialized, get the existing instance
-  if (error.code === "auth/already-initialized") {
-    auth = getAuth(firebaseApp);
-    console.log("✅ Firebase Auth already initialized");
-  } else {
-    console.error("❌ Firebase Auth initialization error:", error);
-    throw error;
-  }
-}
+export const auth: Auth = getAuth(firebaseApp);
 
 /**
  * Firestore Database instance
  */
 export const db: Firestore = getFirestore(firebaseApp);
-console.log("✅ Firestore initialized");
 
 /**
- * Export instances
+ * Export the Firebase app instance
  */
-export { firebaseApp, auth };
+export { firebaseApp };

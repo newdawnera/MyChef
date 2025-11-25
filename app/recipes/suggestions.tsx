@@ -1,10 +1,14 @@
-// app/recipes/suggestions.tsx - AI Suggestions with Real Spoonacular Data
+// app/recipes/suggestions.tsx - FIXED CRASH ON 0 VALUES
 /**
- * This screen now:
- * 1. Receives search params from Home screen
- * 2. Calls Groq AI for analysis
- * 3. Fetches real recipes from Spoonacular
- * 4. Displays results with proper loading/error states
+ * AI Suggestions Screen - INTELLIGENT RECIPE GENERATION
+ *
+ * NEW FEATURES:
+ * 1. Progressive variation strategy (similar → related → different)
+ * 2. Recipe tracking (avoid showing duplicates)
+ * 3. Confidence score display
+ * 4. Conflict resolution badges
+ * 5. Detailed key points display
+ * 6. Smart reset strategy
  */
 
 import React, { useEffect, useState, useRef } from "react";
@@ -20,11 +24,24 @@ import {
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ArrowLeft, Clock, Flame, Users, Sparkles } from "lucide-react-native";
+import {
+  ArrowLeft,
+  Clock,
+  Flame,
+  Users,
+  Sparkles,
+  RefreshCw,
+  Info,
+  AlertTriangle,
+  CheckCircle2,
+} from "lucide-react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useTheme } from "@/contexts/ThemeContext";
 import { usePreferences } from "@/hooks/usePreferences";
-import { analyzeRecipeRequest } from "@/services/groqServices";
+import {
+  analyzeRecipeRequest,
+  RecipeAnalysisResponse,
+} from "@/services/groqServices";
 import {
   groqToSpoonacularParams,
   searchRecipes,
@@ -43,13 +60,14 @@ export default function AiSuggestionScreen() {
   const [isGenerating, setIsGenerating] = useState(true);
   const [recipes, setRecipes] = useState<SpoonacularRecipe[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [searchMode, setSearchMode] = useState<"initial" | "fallback" | "new">(
-    "initial"
-  );
   const [currentOffset, setCurrentOffset] = useState(0);
-  const [groqAnalysis, setGroqAnalysis] = useState<any>(null);
+  const [groqAnalysis, setGroqAnalysis] =
+    useState<RecipeAnalysisResponse | null>(null);
+  const [regenerationCount, setRegenerationCount] = useState(0);
+  const [shownRecipeIds, setShownRecipeIds] = useState<Set<number>>(new Set());
+  const [showAnalysisDetails, setShowAnalysisDetails] = useState(false);
 
-  // Extract params from navigation
+  // Extract params
   const searchText = (params.searchText as string) || "";
   const imagesParam = params.images as string;
   const images = imagesParam ? JSON.parse(imagesParam) : [];
@@ -105,73 +123,82 @@ export default function AiSuggestionScreen() {
   }, [isGenerating]);
 
   /**
-   * Main recipe generation flow
+   * ENHANCED: Main recipe generation with progressive variation
    */
   const generateRecipes = async (isNewGeneration = false) => {
     try {
       setIsGenerating(true);
       setError(null);
 
-      console.log("🤖 Starting AI recipe generation...");
-      console.log("Search:", searchText);
-      console.log("Images:", images.length);
-      console.log("Is new generation:", isNewGeneration);
+      console.log("🤖 Starting enhanced recipe generation...");
+      console.log("Regeneration count:", regenerationCount);
+      console.log("Shown recipes:", shownRecipeIds.size);
 
-      // Step 1: Analyze with Groq AI (only on first load)
-      let groqResponse = groqAnalysis;
+      // Step 1: Analyze with Groq (only on first load or every 3rd regeneration)
+      let analysis = groqAnalysis;
 
-      if (!groqAnalysis || isNewGeneration) {
-        groqResponse = await analyzeRecipeRequest({
+      if (!groqAnalysis || (isNewGeneration && regenerationCount % 3 === 0)) {
+        console.log("🔄 Running fresh Groq analysis...");
+        analysis = await analyzeRecipeRequest({
           searchText,
           images,
           preferences,
         });
-        setGroqAnalysis(groqResponse);
-        console.log("✅ Groq analysis complete:", groqResponse);
+        setGroqAnalysis(analysis);
+        console.log("✅ Groq analysis complete");
+        console.log("Confidence:", analysis.confidence);
+        console.log("Conflicts:", analysis.conflicts.hasConflicts);
       } else {
         console.log("♻️ Using cached Groq analysis");
       }
 
-      // Step 2: Convert to Spoonacular parameters
-      // For new generation: use offset or random
-      const offset = isNewGeneration ? currentOffset + 20 : 0;
-      const spoonacularParams = groqToSpoonacularParams(groqResponse, {
-        offset: offset,
-        forceRandom: isNewGeneration && Math.random() > 0.5, // 50% chance of random
-      });
+      // Step 2: Progressive variation strategy
+      const spoonacularParams = applyProgressiveVariation(
+        analysis!,
+        regenerationCount,
+        isNewGeneration
+      );
 
-      console.log("🔍 Searching Spoonacular with:", spoonacularParams);
+      console.log("🔍 Searching with params:", spoonacularParams);
 
-      // Step 3: Try narrow search first (with preferences)
+      // Step 3: Search recipes
       const results = await searchRecipes(spoonacularParams);
 
       console.log(`✅ Found ${results.results.length} recipes`);
 
-      // Check which strategy was used
-      const strategy = (results as any).searchStrategy;
-      console.log(`📊 Search strategy used: ${strategy}`);
+      // Step 4: Filter out already shown recipes (if we have enough)
+      let filteredRecipes = results.results as SpoonacularRecipe[];
 
-      if (results.results.length === 0) {
-        // This should never happen now
-        console.log("⚠️ No results found");
-        setRecipes([]);
-        setSearchMode("fallback");
-      } else {
-        setRecipes(results.results as any);
+      if (shownRecipeIds.size > 0 && filteredRecipes.length > 10) {
+        const newRecipes = filteredRecipes.filter(
+          (r) => !shownRecipeIds.has(r.id)
+        );
 
-        // Set search mode based on strategy
-        if (strategy === "full" || strategy === "no-nutrition") {
-          setSearchMode(isNewGeneration ? "new" : "initial");
+        if (newRecipes.length >= 5) {
+          console.log(
+            `📊 Filtered out ${
+              filteredRecipes.length - newRecipes.length
+            } already shown recipes`
+          );
+          filteredRecipes = newRecipes;
         } else {
-          setSearchMode("fallback");
-        }
-
-        if (isNewGeneration) {
-          setCurrentOffset(offset);
+          console.log("⚠️ Not enough new recipes, showing all");
         }
       }
 
-      // Fade in recipes
+      // Step 5: Update state
+      setRecipes(filteredRecipes);
+
+      // Track shown recipes
+      const newShownIds = new Set(shownRecipeIds);
+      filteredRecipes.forEach((r) => newShownIds.add(r.id));
+      setShownRecipeIds(newShownIds);
+
+      if (isNewGeneration) {
+        setRegenerationCount((prev) => prev + 1);
+      }
+
+      // Fade in
       setTimeout(() => {
         setIsGenerating(false);
         Animated.timing(fadeAnim, {
@@ -198,10 +225,84 @@ export default function AiSuggestionScreen() {
     }
   };
 
-  const spin = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
+  /**
+   * PROGRESSIVE VARIATION STRATEGY
+   */
+  const applyProgressiveVariation = (
+    analysis: RecipeAnalysisResponse,
+    count: number,
+    isNew: boolean
+  ): any => {
+    const baseParams = groqToSpoonacularParams(analysis);
+
+    if (!isNew) {
+      // Initial load - use exact search
+      return baseParams;
+    }
+
+    // Progressive variation based on regeneration count
+    const strategy = count % 4;
+
+    switch (strategy) {
+      case 0:
+        // Strategy 1: Similar (next page of same search)
+        console.log("📊 Strategy 1: Similar recipes (offset pagination)");
+        return {
+          ...baseParams,
+          offset: currentOffset + 20,
+        };
+
+      case 1:
+        // Strategy 2: Related (same cuisine, different ingredients)
+        console.log("📊 Strategy 2: Related recipes (same cuisine, broaden)");
+        return {
+          ...baseParams,
+          sort: "popularity",
+          includeIngredients: undefined, // Remove specific ingredients
+          maxReadyTime: undefined, // Remove time constraint
+          offset: 0,
+        };
+
+      case 2:
+        // Strategy 3: Different (related cuisine, same dietary)
+        console.log("📊 Strategy 3: Different recipes (related cuisine)");
+        const currentCuisine = analysis.extractedKeyPoints.cuisine.requested;
+        const alternatives = analysis.extractedKeyPoints.cuisine.alternatives;
+
+        return {
+          ...baseParams,
+          cuisine: alternatives.length > 0 ? alternatives[0] : undefined,
+          query: baseParams.query?.split(" ").slice(0, 1).join(" "), // Simplify query
+          sort: "meta-score",
+          includeIngredients: undefined,
+          offset: 0,
+        };
+
+      case 3:
+      default:
+        // Strategy 4: Surprise (random with dietary constraints)
+        console.log("📊 Strategy 4: Surprise recipes (random)");
+        return {
+          number: 20,
+          addRecipeInformation: true,
+          sort: "random",
+          // Keep ONLY critical filters
+          diet: baseParams.diet,
+          intolerances: baseParams.intolerances,
+          excludeIngredients: baseParams.excludeIngredients,
+          offset: 0,
+        };
+    }
+  };
+
+  /**
+   * Handle regenerate
+   */
+  const handleRegenerate = () => {
+    setRecipes([]);
+    fadeAnim.setValue(0);
+    generateRecipes(true);
+  };
 
   /**
    * Handle recipe press
@@ -210,14 +311,10 @@ export default function AiSuggestionScreen() {
     router.push(`/recipes/details?id=${recipe.id}`);
   };
 
-  /**
-   * Handle regenerate - generates NEW recipes
-   */
-  const handleRegenerate = () => {
-    setRecipes([]);
-    fadeAnim.setValue(0);
-    generateRecipes(true); // Pass true for new generation
-  };
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
 
   // Loading State
   if (isGenerating) {
@@ -230,7 +327,6 @@ export default function AiSuggestionScreen() {
           barStyle={theme === "dark" ? "light-content" : "dark-content"}
         />
 
-        {/* Header */}
         <View
           style={{
             paddingVertical: 16,
@@ -239,11 +335,6 @@ export default function AiSuggestionScreen() {
             alignItems: "center",
             gap: 12,
             backgroundColor: colors.cardBg,
-            shadowColor: colors.shadow,
-            shadowOpacity: 0.05,
-            shadowRadius: 4,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 2,
             borderBottomWidth: 1,
             borderBottomColor: colors.border,
           }}
@@ -274,7 +365,6 @@ export default function AiSuggestionScreen() {
           </Text>
         </View>
 
-        {/* Loading State */}
         <View
           style={{
             flex: 1,
@@ -307,7 +397,9 @@ export default function AiSuggestionScreen() {
               textAlign: "center",
             }}
           >
-            Generating Recipes...
+            {regenerationCount === 0
+              ? "Analyzing Your Request..."
+              : "Finding New Recipes..."}
           </Text>
 
           <Text
@@ -319,7 +411,11 @@ export default function AiSuggestionScreen() {
               lineHeight: 22,
             }}
           >
-            AI is analyzing your preferences and creating personalized recipes
+            {regenerationCount === 0
+              ? "AI is analyzing your preferences and creating personalized recipes"
+              : `Finding fresh suggestions (Strategy ${
+                  (regenerationCount % 4) + 1
+                }/4)`}
           </Text>
         </View>
       </SafeAreaView>
@@ -403,15 +499,15 @@ export default function AiSuggestionScreen() {
             {error}
           </Text>
           <TouchableOpacity
-            onPress={handleRegenerate}
+            onPress={() => generateRecipes(false)}
             style={{
               backgroundColor: colors.primary,
-              borderRadius: 16,
-              paddingVertical: 14,
               paddingHorizontal: 24,
+              paddingVertical: 12,
+              borderRadius: 12,
             }}
           >
-            <Text style={{ fontSize: 16, fontWeight: "600", color: "#FFFFFF" }}>
+            <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>
               Try Again
             </Text>
           </TouchableOpacity>
@@ -420,7 +516,7 @@ export default function AiSuggestionScreen() {
     );
   }
 
-  // Results State
+  // Success State
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -435,310 +531,400 @@ export default function AiSuggestionScreen() {
         style={{
           paddingVertical: 16,
           paddingHorizontal: 20,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 12,
           backgroundColor: colors.cardBg,
-          shadowColor: colors.shadow,
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 2,
           borderBottomWidth: 1,
           borderBottomColor: colors.border,
         }}
       >
-        <TouchableOpacity
-          onPress={() => router.back()}
+        <View
           style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: colors.background,
+            flexDirection: "row",
             alignItems: "center",
-            justifyContent: "center",
-            borderWidth: 1,
-            borderColor: colors.border,
+            justifyContent: "space-between",
+            marginBottom: 12,
           }}
         >
-          <ArrowLeft size={20} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text
-          style={{ fontSize: 20, fontWeight: "600", color: colors.textPrimary }}
-        >
-          AI Suggestions
-        </Text>
-      </View>
-
-      <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 20 }}
-        >
-          {/* Info Banner - Shows filter status */}
-          {searchMode === "initial" && preferences && (
-            <View
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <TouchableOpacity
+              onPress={() => router.back()}
               style={{
-                backgroundColor: colors.primary + "15",
-                borderRadius: 12,
-                padding: 12,
-                marginBottom: 16,
-                borderLeftWidth: 3,
-                borderLeftColor: colors.primary,
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: colors.background,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: colors.border,
               }}
             >
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: colors.textPrimary,
-                  fontWeight: "500",
-                }}
-              >
-                ✓ Results filtered by your dietary preferences
-              </Text>
-            </View>
-          )}
-
-          {searchMode === "fallback" && (
-            <View
+              <ArrowLeft size={20} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <Text
               style={{
-                backgroundColor: "#FFA500" + "15",
-                borderRadius: 12,
-                padding: 12,
-                marginBottom: 16,
-                borderLeftWidth: 3,
-                borderLeftColor: "#FFA500",
+                fontSize: 20,
+                fontWeight: "600",
+                color: colors.textPrimary,
               }}
             >
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: colors.textPrimary,
-                  fontWeight: "500",
-                }}
-              >
-                ℹ️ No exact matches found. Showing similar recipes instead
-              </Text>
-            </View>
-          )}
+              AI Suggestions
+            </Text>
+          </View>
 
-          <Text
+          <TouchableOpacity
+            onPress={() => setShowAnalysisDetails(!showAnalysisDetails)}
             style={{
-              fontSize: 14,
-              color: colors.textSecondary,
-              marginBottom: 20,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.background,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: colors.border,
             }}
           >
-            Based on your preferences, we found{" "}
-            <Text style={{ color: colors.primary, fontWeight: "600" }}>
-              {recipes.length} recipes
-            </Text>{" "}
-            for you
-          </Text>
+            <Info size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
 
-          {/* Recipe Cards */}
-          {recipes.map((recipe) => {
-            const difficulty = calculateDifficulty(recipe);
-            const tags = [
-              ...(recipe.diets || []),
-              ...(recipe.dishTypes?.slice(0, 1) || []),
-            ];
-
-            return (
-              <TouchableOpacity
-                key={recipe.id}
-                style={{
-                  backgroundColor: colors.cardBg,
-                  borderRadius: 20,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  marginBottom: 16,
-                  overflow: "hidden",
-                  shadowColor: colors.shadow,
-                  shadowOpacity: 0.05,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 3,
-                }}
-                onPress={() => handleRecipePress(recipe)}
+        {/* Analysis Summary */}
+        {groqAnalysis && (
+          <View
+            style={{
+              backgroundColor: colors.background,
+              borderRadius: 12,
+              padding: 12,
+              marginTop: 8,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 8,
+              }}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
               >
-                {/* Image */}
-                <View style={{ height: 200, position: "relative" }}>
-                  <Image
-                    source={{ uri: recipe.image }}
-                    style={{ width: "100%", height: "100%" }}
-                    resizeMode="cover"
-                  />
+                <CheckCircle2
+                  size={16}
+                  color={
+                    groqAnalysis.confidence > 0.7
+                      ? "#10B981"
+                      : groqAnalysis.confidence > 0.4
+                      ? "#F59E0B"
+                      : "#EF4444"
+                  }
+                />
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "600",
+                    color: colors.textPrimary,
+                  }}
+                >
+                  Match Quality:{" "}
+                  {groqAnalysis.confidence > 0.7
+                    ? "Excellent"
+                    : groqAnalysis.confidence > 0.4
+                    ? "Good"
+                    : "Fair"}
+                </Text>
+              </View>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colors.textSecondary,
+                }}
+              >
+                {recipes.length} recipes
+              </Text>
+            </View>
 
-                  {/* Tags */}
-                  {tags.length > 0 && (
-                    <View
-                      style={{
-                        position: "absolute",
-                        top: 12,
-                        left: 12,
-                        flexDirection: "row",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        maxWidth: "70%",
-                      }}
-                    >
-                      {tags.slice(0, 2).map((tag) => (
-                        <View
-                          key={tag}
-                          style={{
-                            backgroundColor: "rgba(255, 255, 255, 0.95)",
-                            borderRadius: 12,
-                            paddingHorizontal: 10,
-                            paddingVertical: 5,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              color: colors.primary,
-                              fontWeight: "600",
-                              textTransform: "capitalize",
-                            }}
-                          >
-                            {tag}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
+            {/* Conflicts Badge */}
+            {groqAnalysis.conflicts.hasConflicts && (
+              <View
+                style={{
+                  backgroundColor: "#FEF3C7",
+                  borderRadius: 8,
+                  padding: 8,
+                  marginTop: 4,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <AlertTriangle size={14} color="#F59E0B" />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: "#92400E",
+                    flex: 1,
+                  }}
+                >
+                  {`${groqAnalysis.conflicts.resolved.length} preference${
+                    groqAnalysis.conflicts.resolved.length > 1 ? "s" : ""
+                  } adapted`}
+                </Text>
+              </View>
+            )}
 
-                  {/* Difficulty Badge */}
-                  <View
-                    style={{
-                      position: "absolute",
-                      top: 12,
-                      right: 12,
-                      backgroundColor: "rgba(255, 255, 255, 0.95)",
-                      borderRadius: 12,
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                    }}
-                  >
+            {/* Detailed Analysis (Expandable) */}
+            {showAnalysisDetails && (
+              <View style={{ marginTop: 12, gap: 8 }}>
+                {/* Primary Ingredients */}
+                {groqAnalysis?.extractedKeyPoints?.primaryIngredients?.items
+                  ?.length > 0 && (
+                  <View>
                     <Text
                       style={{
                         fontSize: 11,
-                        color: "#FF9500",
                         fontWeight: "600",
+                        color: colors.textSecondary,
+                        textTransform: "uppercase",
+                        marginBottom: 4,
                       }}
                     >
-                      {difficulty}
+                      Detected Ingredients
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: colors.textPrimary,
+                      }}
+                    >
+                      {groqAnalysis.extractedKeyPoints.primaryIngredients.items.join(
+                        ", "
+                      )}
                     </Text>
                   </View>
-                </View>
+                )}
 
-                {/* Content */}
-                <View style={{ padding: 16 }}>
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: "600",
-                      color: colors.textPrimary,
-                      marginBottom: 12,
-                    }}
-                    numberOfLines={2}
-                  >
-                    {recipe.title}
-                  </Text>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <View
+                {/* Applied Filters */}
+                {groqAnalysis?.appliedFilters?.critical?.allergies?.length >
+                  0 && (
+                  <View>
+                    <Text
                       style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 4,
+                        fontSize: 11,
+                        fontWeight: "600",
+                        color: "#EF4444",
+                        textTransform: "uppercase",
+                        marginBottom: 4,
                       }}
                     >
-                      <Clock size={16} color={colors.textSecondary} />
-                      <Text
-                        style={{ fontSize: 13, color: colors.textSecondary }}
-                      >
-                        {recipe.readyInMinutes} min
-                      </Text>
-                    </View>
-                    <View
+                      🚨 Allergies Excluded
+                    </Text>
+                    <Text
                       style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 4,
+                        fontSize: 13,
+                        color: colors.textPrimary,
                       }}
                     >
-                      <Users size={16} color={colors.textSecondary} />
-                      <Text
-                        style={{ fontSize: 13, color: colors.textSecondary }}
-                      >
-                        {recipe.servings} servings
-                      </Text>
-                    </View>
-
-                    {/* FIX: Change recipe.healthScore to !!recipe.healthScore */}
-                    {!!recipe.healthScore && (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <Flame size={16} color={colors.textSecondary} />
-                        <Text
-                          style={{ fontSize: 13, color: colors.textSecondary }}
-                        >
-                          {Math.round(recipe.healthScore)}%
-                        </Text>
-                      </View>
-                    )}
+                      {(
+                        groqAnalysis.appliedFilters.critical.allergies || []
+                      ).join(", ")}
+                    </Text>
                   </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                )}
 
-          {/* Regenerate Button */}
-          <TouchableOpacity
-            onPress={handleRegenerate}
+                {groqAnalysis?.appliedFilters?.high?.diets?.length > 0 && (
+                  <View>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: "600",
+                        color: colors.textSecondary,
+                        textTransform: "uppercase",
+                        marginBottom: 4,
+                      }}
+                    >
+                      Dietary Filters
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: colors.textPrimary,
+                      }}
+                    >
+                      {(groqAnalysis.appliedFilters.high.diets || []).join(
+                        ", "
+                      )}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Recipes List */}
+      <Animated.ScrollView
+        style={{ flex: 1, opacity: fadeAnim }}
+        contentContainerStyle={{ padding: 20 }}
+      >
+        <View style={{ gap: 16 }}>
+          {recipes.map((recipe, index) => (
+            <RecipeCard
+              key={`${recipe.id}-${index}`}
+              recipe={recipe}
+              onPress={() => handleRecipePress(recipe)}
+              colors={colors}
+            />
+          ))}
+        </View>
+
+        {/* Generate New Button */}
+        <TouchableOpacity
+          onPress={handleRegenerate}
+          style={{
+            backgroundColor: colors.primary,
+            borderRadius: 16,
+            paddingVertical: 16,
+            marginTop: 24,
+            marginBottom: 40,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          <RefreshCw size={20} color="#FFFFFF" />
+          <Text
             style={{
-              marginTop: 8,
-              marginBottom: 24,
-              paddingVertical: 16,
-              borderRadius: 20,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.cardBg,
-              alignItems: "center",
-              justifyContent: "center",
-              flexDirection: "row",
-              gap: 8,
-              shadowColor: colors.shadow,
-              shadowOpacity: 0.05,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
+              fontSize: 16,
+              fontWeight: "600",
+              color: "#FFFFFF",
             }}
           >
-            <Sparkles size={20} color={colors.primary} />
-            <Text
+            Generate New Recipes
+          </Text>
+        </TouchableOpacity>
+      </Animated.ScrollView>
+    </SafeAreaView>
+  );
+}
+
+/**
+ * Recipe Card Component
+ */
+function RecipeCard({
+  recipe,
+  onPress,
+  colors,
+}: {
+  recipe: SpoonacularRecipe;
+  onPress: () => void;
+  colors: any;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={{
+        backgroundColor: colors.cardBg,
+        borderRadius: 16,
+        overflow: "hidden",
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <Image
+        source={{
+          uri: recipe.image || "https://via.placeholder.com/400x200",
+        }}
+        style={{ width: "100%", height: 200 }}
+        resizeMode="cover"
+      />
+
+      <View style={{ padding: 16 }}>
+        <Text
+          style={{
+            fontSize: 18,
+            fontWeight: "600",
+            color: colors.textPrimary,
+            marginBottom: 8,
+          }}
+          numberOfLines={2}
+        >
+          {recipe.title}
+        </Text>
+
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 16,
+          }}
+        >
+          {/* CRASH FIX: Ensure value is greater than 0 explicitly. 
+              {0 && <View/>} renders the number 0 and crashes RN.
+          */}
+          {(recipe.readyInMinutes || 0) > 0 && (
+            <View
               style={{
-                fontSize: 16,
-                fontWeight: "600",
-                color: colors.primary,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
               }}
             >
-              Generate New Recipes
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </Animated.View>
-    </SafeAreaView>
+              <Clock size={14} color={colors.textSecondary} />
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: colors.textSecondary,
+                }}
+              >
+                {recipe.readyInMinutes} min
+              </Text>
+            </View>
+          )}
+
+          {(recipe.servings || 0) > 0 && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <Users size={14} color={colors.textSecondary} />
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: colors.textSecondary,
+                }}
+              >
+                {recipe.servings} servings
+              </Text>
+            </View>
+          )}
+
+          {(recipe.healthScore || 0) > 0 && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <Flame size={14} color="#10B981" />
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: "#10B981",
+                  fontWeight: "600",
+                }}
+              >
+                {recipe.healthScore}%
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 }

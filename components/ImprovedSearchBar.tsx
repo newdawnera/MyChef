@@ -110,7 +110,7 @@ export function ImprovedSearchBar({
         (status) => {
           if (status.isRecording && status.metering !== undefined) {
             // Detect speaking (volume > -50dB)
-            if (status.metering > -40) {
+            if (status.metering > -30) {
               // 1. Clear existing timer (user is speaking)
               if (silenceTimer.current) clearTimeout(silenceTimer.current);
 
