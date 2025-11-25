@@ -1,23 +1,31 @@
-// services/groqServices.ts - IMPROVED WITH SPOONACULAR AWARENESS
+// services/groqServices.ts - ENHANCED WITH STRICT API TYPING
 /**
- * Groq AI Service - Now aware of Spoonacular limitations
+ * Groq AI Service - INTELLIGENT SPEECH ANALYSIS
  *
- * Provides more flexible cuisine suggestions and better fallbacks
+ * NEW FEATURES:
+ * 1. Priority-based preference ranking (Critical > High > Medium > Low)
+ * 2. Detailed key point extraction and labeling
+ * 3. Conflict resolution between speech and preferences
+ * 4. Smart meal goal mapping
+ * 5. Confidence scoring for each category
+ * 6. Progressive fallback strategy
+ * 7. STRICT TYPE ENFORCEMENT for API parameters
  */
 
 import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system";
+import { UserPreferences } from "@/types/preferences";
 
 const GROQ_API_KEY =
   Constants.expoConfig?.extra?.groqApiKey ||
   process.env.EXPO_PUBLIC_GROQ_API_KEY;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-// The user-specified model to use for everything
-const TEXT_MODEL = "llama-3.3-70b-versatile"; // Fast text model for text-only
-const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"; // Llama 4 Scout - supports vision!
+// Models
+const TEXT_MODEL = "llama-3.3-70b-versatile";
+const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
-// Cuisines that Spoonacular actually supports
+// Supported cuisines
 const SPOONACULAR_CUISINES = [
   "African",
   "American",
@@ -47,88 +55,186 @@ const SPOONACULAR_CUISINES = [
   "Vietnamese",
 ];
 
+// Meal goal mappings
+const MEAL_GOAL_MAPPINGS = {
+  "Weight Loss": {
+    maxCalories: 500,
+    sortBy: "healthiness",
+    preferredDiets: ["low-carb", "ketogenic"],
+    keywords: ["light", "healthy", "low-calorie"],
+  },
+  "Muscle Gain": {
+    minProtein: 30,
+    preferredIngredients: ["chicken", "fish", "eggs", "beans", "tofu"],
+    keywords: ["high-protein", "protein-rich", "muscle building"],
+  },
+  "Quick Meals": {
+    maxCookingTime: 30,
+    sortBy: "time",
+    keywords: ["quick", "fast", "easy", "simple"],
+  },
+  "Budget Cooking": {
+    sortBy: "price",
+    avoidExpensiveIngredients: ["saffron", "truffle", "caviar", "wagyu"],
+    keywords: ["budget", "cheap", "affordable", "economical"],
+  },
+  "Balanced Diet": {
+    sortBy: "healthiness",
+    keywords: ["balanced", "nutritious", "wholesome", "healthy"],
+  },
+};
+
 export function isGroqConfigured(): boolean {
   return !!GROQ_API_KEY;
 }
 
+/**
+ * ENHANCED: Request interface with user preferences
+ */
 interface RecipeAnalysisRequest {
   searchText?: string;
-  images?: string[]; // Can be base64 OR file URIs now
-  preferences?: any;
-}
-
-interface RecipeAnalysisResponse {
-  naturalLanguageQuery: string;
-  ingredients: string[];
-  cuisines: string[];
-  diets: string[];
-  intolerances: string[];
-  excludeIngredients: string[];
-  mealType?: "breakfast" | "lunch" | "dinner" | "snack" | "dessert";
-  maxCookingTime?: number;
-  nutritionalTargets?: {
-    maxCalories?: number;
-    minProtein?: number;
-    maxCarbs?: number;
-  };
-  confidence: number;
-  explanation: string;
+  images?: string[];
+  preferences?: UserPreferences;
 }
 
 /**
- * HELPER: Process image for API
- * Returns a full data URI (data:image/...) OR a remote URL string
+ * ENHANCED: Response with detailed key points and priority levels
+ */
+export interface RecipeAnalysisResponse {
+  // Core search components
+  naturalLanguageQuery: string;
+
+  // Extracted key points with confidence
+  extractedKeyPoints: {
+    primaryIngredients: {
+      items: string[];
+      confidence: number;
+      source: "speech" | "image" | "inferred";
+    };
+    supportingIngredients: {
+      items: string[];
+      confidence: number;
+    };
+    cuisine: {
+      requested: string | null;
+      alternatives: string[];
+      confidence: number;
+    };
+    mealType: {
+      type: "breakfast" | "lunch" | "dinner" | "snack" | "dessert" | null;
+      confidence: number;
+    };
+    cookingMethod: {
+      method: string | null;
+      confidence: number;
+    };
+    timePreference: {
+      max: number | null;
+      preference: "quick" | "moderate" | "elaborate" | null;
+      confidence: number;
+    };
+    healthIntent: {
+      goal: string | null;
+      specific: string[];
+      confidence: number;
+    };
+  };
+
+  // Applied filters with priority levels
+  appliedFilters: {
+    critical: {
+      allergies: string[];
+      intolerances: string[];
+    };
+    high: {
+      diets: string[];
+      excludeIngredients: string[];
+    };
+    medium: {
+      preferredCuisines: string[];
+      mealGoals: string[];
+    };
+    low: {
+      skillLevel: string | null;
+      servingSize: number | null;
+    };
+  };
+
+  // Spoonacular parameters
+  spoonacularParams: {
+    query: string;
+    cuisines: string[];
+    diets: string[];
+    intolerances: string[];
+    excludeIngredients: string[];
+    mealType?: string;
+    maxCookingTime?: number;
+    nutritionalTargets?: {
+      maxCalories?: number;
+      minProtein?: number;
+      maxCarbs?: number;
+    };
+  };
+
+  // Conflict resolution
+  conflicts: {
+    hasConflicts: boolean;
+    resolved: Array<{
+      type: "diet" | "ingredient" | "cuisine";
+      userRequest: string;
+      userPreference: string;
+      resolution: string;
+      action: "override" | "substitute" | "combine";
+    }>;
+  };
+
+  // Overall confidence and explanation
+  confidence: number;
+  explanation: string;
+
+  // Search strategy recommendation
+  searchStrategy: {
+    primary: "exact" | "flexible" | "broad";
+    fallbackSteps: string[];
+  };
+}
+
+/**
+ * Process image for API
  */
 const processImageForApi = async (image: string): Promise<string> => {
   console.log(`🖼️ Processing image: ${image.substring(0, 50)}...`);
 
-  // 1. If it's already a remote URL (http/https), return as is
   if (image.startsWith("http://") || image.startsWith("https://")) {
-    console.log("✅ Image is remote URL");
     return image;
   }
 
-  // 2. If it looks like a local file, read it as Base64
   if (
     image.startsWith("file://") ||
     image.startsWith("content://") ||
     image.startsWith("/") ||
-    image.startsWith("ph://") // iOS Photos Asset
+    image.startsWith("ph://")
   ) {
     try {
-      console.log("📁 Reading local file as base64...");
-
-      // NEW Expo FileSystem API (v54+)
       const fileUri = image.startsWith("file://") ? image : `file://${image}`;
       const file = new FileSystem.File(fileUri);
       const base64 = await file.base64();
-
-      console.log(`✅ Converted to base64 (${base64.length} chars)`);
-      // Return properly formatted data URI
       return `data:image/jpeg;base64,${base64}`;
     } catch (error) {
-      console.error("❌ Failed to convert image to base64:", error);
-      // Fallback: If read fails, we can't send it. Return null or empty.
-      // But returning original image will cause "unsupported protocol" error.
-      // So we return empty string to be filtered out later.
+      console.error("❌ Failed to convert image:", error);
       return "";
     }
   }
 
-  // 3. If it's already a data URI, return as is
   if (image.startsWith("data:image")) {
-    console.log("✅ Image is already data URI");
     return image;
   }
 
-  // 4. Assume it's raw base64 string without header
-  // We prepend the header to satisfy "invalid base64 url" error
-  console.log("🔧 Adding data URI header to base64 string");
   return `data:image/jpeg;base64,${image}`;
 };
 
 /**
- * Main function: Analyze recipe request with AI
+ * MAIN: Analyze recipe request with enhanced intelligence
  */
 export async function analyzeRecipeRequest(
   request: RecipeAnalysisRequest
@@ -137,15 +243,14 @@ export async function analyzeRecipeRequest(
     throw new Error("Groq API key not configured");
   }
 
-  console.log("📊 Analyzing recipe request...");
+  console.log("📊 Starting enhanced recipe analysis...");
 
   const { searchText, images, preferences } = request;
 
-  // Build the prompt
-  const systemPrompt = buildSystemPrompt(preferences);
-  const userPrompt = buildUserPrompt(searchText, preferences);
+  // Build enhanced prompts
+  const systemPrompt = buildEnhancedSystemPrompt(preferences);
+  const userPrompt = buildEnhancedUserPrompt(searchText, preferences);
 
-  // Prepare messages
   const messages: any[] = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
@@ -154,51 +259,30 @@ export async function analyzeRecipeRequest(
   // Add images if provided
   let hasImages = false;
   if (images && images.length > 0) {
-    console.log(`🖼️ Processing ${images.length} images...`);
-
-    // Process all images to get valid URLs or Data URIs
     const processedImages = await Promise.all(
       images.slice(0, 3).map((img) => processImageForApi(img))
     );
 
-    // Filter out any empty strings from failed conversions
     const validImages = processedImages.filter((img) => img && img.length > 0);
 
     if (validImages.length > 0) {
-      console.log(
-        `✅ Successfully processed ${validImages.length} images for API.`
-      );
       hasImages = true;
-
       const imageMessages = validImages.map((imgUrl) => ({
         role: "user",
         content: [
-          {
-            type: "image_url",
-            image_url: {
-              url: imgUrl,
-            },
-          },
+          { type: "image_url", image_url: { url: imgUrl } },
           {
             type: "text",
-            text: "Identify the ingredients visible in this image.",
+            text: "Analyze: Identify ingredients with quantities/states, detect equipment, suggest dishes.",
           },
         ],
       }));
       messages.push(...imageMessages);
-    } else {
-      console.warn(
-        "⚠️ No valid images found after processing. Proceeding with text only."
-      );
     }
   }
 
   try {
-    console.log("🤖 Calling Groq AI...");
-
-    // Use vision model if images present, text model otherwise
     const modelToUse = hasImages ? VISION_MODEL : TEXT_MODEL;
-    console.log(`📦 Using model: ${modelToUse}`);
 
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
@@ -210,28 +294,19 @@ export async function analyzeRecipeRequest(
         model: modelToUse,
         messages,
         temperature: 0.7,
-        max_tokens: 1000,
+        max_tokens: 2000,
       }),
     });
 
     if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ error: "Unknown error" }));
+      const error = await response.json().catch(() => ({ error: "Unknown" }));
       throw new Error(`Groq API error: ${JSON.stringify(error)}`);
     }
 
     const data = await response.json();
     const content = data.choices[0].message.content;
 
-    console.log("✅ Groq analysis complete");
-
-    // Parse the JSON response
-    const analysis = parseGroqResponse(content);
-
-    console.log("✅ Groq analysis parsed successfully");
-
-    return analysis;
+    return parseEnhancedGroqResponse(content, preferences);
   } catch (error) {
     console.error("❌ Groq analysis error:", error);
     throw error;
@@ -239,231 +314,276 @@ export async function analyzeRecipeRequest(
 }
 
 /**
- * Build system prompt with Spoonacular awareness
+ * Build enhanced system prompt with STRICT TYPES
  */
-function buildSystemPrompt(preferences: any): string {
-  return `You are a recipe recommendation AI assistant that helps users find recipes.
+function buildEnhancedSystemPrompt(preferences?: UserPreferences): string {
+  const goalMappings = preferences?.selectedGoals
+    ?.map((goal) => {
+      const mapping =
+        MEAL_GOAL_MAPPINGS[goal as keyof typeof MEAL_GOAL_MAPPINGS];
+      return mapping ? `${goal}: ${JSON.stringify(mapping)}` : null;
+    })
+    .filter(Boolean)
+    .join("\n");
 
-IMPORTANT CONSTRAINTS:
-1. You MUST respond with ONLY valid JSON - no markdown, no backticks, no explanations before or after
-2. Cuisine options are LIMITED to: ${SPOONACULAR_CUISINES.join(", ")}
-3. If user requests unsupported cuisine (e.g., Nigerian, Ghanaian), suggest:
-   - Use "African" as the cuisine
-   - Focus on the INGREDIENTS they mentioned (e.g., catfish, peppers)
-   - Use descriptive terms in the query (e.g., "spicy fish soup")
-4. Prioritize INGREDIENTS over cuisine when possible
-5. Keep naturalLanguageQuery simple and flexible
+  return `You are an intelligent recipe AI with PRIORITY-BASED ANALYSIS.
 
-CRITICAL - NUTRITIONAL TARGETS (READ THIS CAREFULLY):
-⚠️ DEFAULT BEHAVIOR: Leave nutritionalTargets as EMPTY OBJECT {}
-⚠️ ONLY add values if user gives EXACT NUMBERS with units
+🎯 PRIORITY LEVELS:
+1. CRITICAL: Allergies/intolerances (NEVER compromise)
+2. HIGH: Diets/avoid ingredients (strongly prioritize)
+3. MEDIUM: Cuisine/goals (flexible guidance)
+4. LOW: Skill/servings (helpful context)
 
-DO NOT SET nutritionalTargets for:
-❌ "low sugar" / "no sugar" / "less sugar"
-❌ "low carb" / "no carb" / "keto-friendly"
-❌ "high protein" / "lots of protein"
-❌ "healthy" / "nutritious" / "balanced"
-❌ "help me gain weight" / "help me lose weight"
-❌ "light" / "heavy" / "filling"
-❌ ANY vague health terms
+⚙️ API DATA TYPE CONSTRAINTS (CRITICAL):
+- maxCookingTime: MUST be an INTEGER (minutes). Example: 30. NEVER use strings like "quick".
+- nutritionalTargets: Values (calories, protein) must be INTEGERS.
+- mealType: String from specific list ONLY: [main course, side dish, dessert, appetizer, salad, bread, breakfast, soup, beverage, sauce, marinade, fingerfood, snack, drink].
+- diets: Lowercase strings (e.g. "vegetarian").
+- intolerances: Comma-separated strings.
 
-ONLY SET nutritionalTargets when user says:
-✅ "under 300 calories" → {"maxCalories": 300}
-✅ "at least 25g protein" → {"minProtein": 25}
-✅ "less than 40g carbs" → {"maxCarbs": 40}
-✅ "300-400 calories" → {"maxCalories": 400}
+📊 EXTRACT KEY POINTS:
+- Ingredients: PRIMARY vs SUPPORTING
+- Cuisine: Requested + alternatives
+- Meal Type: See list above
+- Cooking Method: grilled/baked/fried/etc
+- Time: quick/moderate/elaborate
+- Health Intent: healthy/indulgent/comfort/etc
+- Nutrition: ONLY if EXACT numbers given
 
-For vague requests, use DESCRIPTIVE QUERY TERMS instead:
-- "low sugar" → query: "desserts" (let search find options)
-- "no carb" → query: "protein meals" or "meat dishes"
-- "high protein" → query: "chicken fish beef"
-- "healthy" → query: "nutritious balanced meals"
-- "gain weight" → query: "hearty filling meals"
+⚠️ CONFLICT RESOLUTION:
+- CRITICAL: Always use preference
+- HIGH: Suggest alternative
+- MEDIUM: Allow override
 
-Response format (JSON only):
+🔍 CUISINES: ${SPOONACULAR_CUISINES.join(", ")}
+
+🎯 GOALS: ${goalMappings || "None"}
+
+📝 RESPONSE (JSON ONLY):
 {
-  "naturalLanguageQuery": "simple descriptive terms (NOT constraints)",
-  "ingredients": [],
-  "cuisines": [],
-  "diets": [],
-  "intolerances": [],
-  "excludeIngredients": [],
-  "mealType": "breakfast|lunch|dinner|snack|dessert",
-  "maxCookingTime": 60,
-  "nutritionalTargets": {},
-  "confidence": 0.8,
-  "explanation": "brief explanation"
+  "naturalLanguageQuery": "simple terms",
+  "extractedKeyPoints": {
+    "primaryIngredients": {"items": [], "confidence": 0.9, "source": "speech"},
+    "supportingIngredients": {"items": [], "confidence": 0.7},
+    "cuisine": {"requested": null, "alternatives": [], "confidence": 0},
+    "mealType": {"type": null, "confidence": 0},
+    "cookingMethod": {"method": null, "confidence": 0},
+    "timePreference": {"max": null, "preference": null, "confidence": 0},
+    "healthIntent": {"goal": null, "specific": [], "confidence": 0}
+  },
+  "appliedFilters": {
+    "critical": {"allergies": [], "intolerances": []},
+    "high": {"diets": [], "excludeIngredients": []},
+    "medium": {"preferredCuisines": [], "mealGoals": []},
+    "low": {"skillLevel": null, "servingSize": null}
+  },
+  "spoonacularParams": {
+    "query": "",
+    "cuisines": [],
+    "diets": [],
+    "intolerances": [],
+    "excludeIngredients": [],
+    "mealType": "",
+    "maxCookingTime": null,
+    "nutritionalTargets": {}
+  },
+  "conflicts": {"hasConflicts": false, "resolved": []},
+  "confidence": 0.85,
+  "explanation": "",
+  "searchStrategy": {"primary": "exact", "fallbackSteps": []}
 }
 
-REAL EXAMPLES:
-Input: "something sugary, tasty, and no carb"
-Output: {
-  "naturalLanguageQuery": "sweet desserts",
-  "cuisines": [],
-  "diets": [],
-  "nutritionalTargets": {},
-  "explanation": "Sweet dessert options"
-}
-
-Input: "low sugar recipes to gain weight safely"
-Output: {
-  "naturalLanguageQuery": "high protein hearty meals",
-  "cuisines": [],
-  "diets": [],
-  "nutritionalTargets": {},
-  "explanation": "Protein-rich meals for healthy weight gain"
-}
-
-Input: "Italian pasta under 400 calories"
-Output: {
-  "naturalLanguageQuery": "Italian pasta",
-  "cuisines": ["Italian"],
-  "diets": [],
-  "nutritionalTargets": {"maxCalories": 400},
-  "explanation": "Italian pasta with calorie limit"
-}
-
-Input: "healthy chicken dinner"
-Output: {
-  "naturalLanguageQuery": "chicken dinner",
-  "ingredients": ["chicken"],
-  "cuisines": [],
-  "diets": [],
-  "nutritionalTargets": {},
-  "explanation": "Chicken-based dinner recipes"
-}
-
-User preferences:
-${preferences ? JSON.stringify(preferences, null, 2) : "None provided"}`;
+USER PREFERENCES: ${
+    preferences ? JSON.stringify(preferences, null, 2) : "None"
+  }`;
 }
 
 /**
- * Build user prompt from search text and preferences
+ * Build user prompt
  */
-function buildUserPrompt(searchText?: string, preferences?: any): string {
-  let prompt =
-    "Analyze this recipe request and provide recommendations in JSON format:\n\n";
+function buildEnhancedUserPrompt(
+  searchText?: string,
+  preferences?: UserPreferences
+): string {
+  let prompt = "Analyze with DETAILED KEY POINTS:\n\n";
 
   if (searchText) {
-    prompt += `User query: "${searchText}"\n\n`;
+    prompt += `🗣️ USER: "${searchText}"\n\n`;
   }
 
   if (preferences) {
-    if (preferences.selectedDiets?.length > 0) {
-      prompt += `Dietary preferences: ${preferences.selectedDiets.join(
+    prompt += `📋 PREFERENCES:\n`;
+    if (preferences.selectedAllergies?.length) {
+      prompt += `🚨 CRITICAL - Allergies: ${preferences.selectedAllergies.join(
         ", "
       )}\n`;
     }
-    if (preferences.selectedAllergies?.length > 0) {
-      prompt += `Allergies: ${preferences.selectedAllergies.join(", ")}\n`;
+    if (preferences.selectedDiets?.length) {
+      prompt += `⭐ HIGH - Diets: ${preferences.selectedDiets.join(", ")}\n`;
     }
-    if (preferences.avoidIngredients?.length > 0) {
-      prompt += `Avoid: ${preferences.avoidIngredients.join(", ")}\n`;
+    if (preferences.avoidIngredients?.length) {
+      prompt += `⭐ HIGH - Avoid: ${preferences.avoidIngredients.join(", ")}\n`;
     }
-    if (preferences.servingSize) {
-      prompt += `Serving size: ${preferences.servingSize}\n`;
+    if (preferences.selectedCuisines?.length) {
+      prompt += `🎯 MEDIUM - Prefers: ${preferences.selectedCuisines.join(
+        ", "
+      )}\n`;
+    }
+    if (preferences.selectedGoals?.length) {
+      prompt += `🎯 MEDIUM - Goals: ${preferences.selectedGoals.join(", ")}\n`;
     }
   }
 
-  prompt +=
-    "\nIMPORTANT: Return ONLY valid JSON with no additional text. If the user requests an unsupported cuisine, suggest African cuisine and focus on ingredients.";
+  prompt += `\n✅ RETURN ONLY JSON (no markdown).`;
 
   return prompt;
 }
 
 /**
- * Parse Groq response (handles markdown wrapping)
+ * Parse response
  */
-function parseGroqResponse(content: string): RecipeAnalysisResponse {
+function parseEnhancedGroqResponse(
+  content: string,
+  preferences?: UserPreferences
+): RecipeAnalysisResponse {
   try {
-    // Remove markdown code blocks if present
     let cleaned = content.trim();
-    cleaned = cleaned.replace(/```json\n?/g, "");
-    cleaned = cleaned.replace(/```\n?/g, "");
-    cleaned = cleaned.trim();
+
+    // Find the first '{' and the last '}' to extract the JSON object
+    const startIndex = cleaned.indexOf("{");
+    const endIndex = cleaned.lastIndexOf("}");
+
+    if (startIndex !== -1 && endIndex !== -1) {
+      cleaned = cleaned.substring(startIndex, endIndex + 1);
+    }
 
     const parsed = JSON.parse(cleaned);
 
-    // Validate required fields
     return {
       naturalLanguageQuery: parsed.naturalLanguageQuery || "popular recipes",
-      ingredients: parsed.ingredients || [],
-      cuisines: parsed.cuisines || [],
-      diets: parsed.diets || [],
-      intolerances: parsed.intolerances || [],
-      excludeIngredients: parsed.excludeIngredients || [],
-      mealType: parsed.mealType,
-      maxCookingTime: parsed.maxCookingTime,
-      nutritionalTargets: parsed.nutritionalTargets,
+      extractedKeyPoints: parsed.extractedKeyPoints || getDefaultKeyPoints(),
+      appliedFilters: parsed.appliedFilters || getDefaultFilters(preferences),
+      spoonacularParams: parsed.spoonacularParams || {
+        query: "",
+        cuisines: [],
+        diets: [],
+        intolerances: [],
+        excludeIngredients: [],
+      },
+      conflicts: parsed.conflicts || { hasConflicts: false, resolved: [] },
       confidence: parsed.confidence || 0.5,
-      explanation: parsed.explanation || "Recipe recommendations generated",
+      explanation: parsed.explanation || "Analysis complete",
+      searchStrategy: parsed.searchStrategy || {
+        primary: "flexible",
+        fallbackSteps: ["broaden search"],
+      },
     };
   } catch (error) {
-    console.error("Failed to parse Groq response:", error);
-    console.error("Raw content:", content);
+    console.error("Parse error:", error);
+    return createFallbackResponse(preferences);
+  }
+}
 
-    // Return a basic fallback
-    return {
-      naturalLanguageQuery: "popular recipes",
-      ingredients: [],
+function getDefaultKeyPoints() {
+  return {
+    primaryIngredients: {
+      items: [],
+      confidence: 0,
+      source: "inferred" as const,
+    },
+    supportingIngredients: { items: [], confidence: 0 },
+    cuisine: { requested: null, alternatives: [], confidence: 0 },
+    mealType: { type: null, confidence: 0 },
+    cookingMethod: { method: null, confidence: 0 },
+    timePreference: { max: null, preference: null, confidence: 0 },
+    healthIntent: { goal: null, specific: [], confidence: 0 },
+  };
+}
+
+function getDefaultFilters(preferences?: UserPreferences) {
+  return {
+    critical: {
+      allergies: preferences?.selectedAllergies || [],
+      intolerances: [],
+    },
+    high: {
+      diets: preferences?.selectedDiets || [],
+      excludeIngredients: preferences?.avoidIngredients || [],
+    },
+    medium: {
+      preferredCuisines: preferences?.selectedCuisines || [],
+      mealGoals: preferences?.selectedGoals || [],
+    },
+    low: {
+      skillLevel: preferences?.skillLevel || null,
+      servingSize: preferences?.servingSize || null,
+    },
+  };
+}
+
+function createFallbackResponse(
+  preferences?: UserPreferences
+): RecipeAnalysisResponse {
+  return {
+    naturalLanguageQuery: "popular recipes",
+    extractedKeyPoints: getDefaultKeyPoints(),
+    appliedFilters: getDefaultFilters(preferences),
+    spoonacularParams: {
+      query: "popular recipes",
       cuisines: [],
       diets: [],
       intolerances: [],
       excludeIngredients: [],
-      confidence: 0.3,
-      explanation: "Using fallback recommendations due to parsing error",
-    };
-  }
+    },
+    conflicts: { hasConflicts: false, resolved: [] },
+    confidence: 0.3,
+    explanation: "Using fallback",
+    searchStrategy: {
+      primary: "broad",
+      fallbackSteps: ["show popular"],
+    },
+  };
 }
 
 /**
- * Detect ingredients from images using vision model
+ * Detect ingredients from images
  */
-export async function detectIngredientsFromImages(
-  images: string[]
-): Promise<string[]> {
-  if (!GROQ_API_KEY) {
-    throw new Error("Groq API key not configured");
+export async function detectIngredientsFromImages(images: string[]): Promise<{
+  ingredients: Array<{
+    name: string;
+    quantity?: string;
+    state?: string;
+    confidence: number;
+  }>;
+  suggestedDishes: string[];
+}> {
+  if (!GROQ_API_KEY || !images?.length) {
+    return { ingredients: [], suggestedDishes: [] };
   }
 
-  if (!images || images.length === 0) {
-    return [];
-  }
-
-  console.log(`🖼️ Detecting ingredients from ${images.length} images...`);
-
-  // Process images to get valid URLs or Data URIs
   const processedImages = await Promise.all(
     images.slice(0, 3).map((img) => processImageForApi(img))
   );
 
-  // Filter out invalid images
-  const validImages = processedImages.filter((img) => img && img.length > 0);
+  const validImages = processedImages.filter((img) => img?.length > 0);
 
-  if (validImages.length === 0) {
-    console.warn("⚠️ No valid images to analyze.");
-    return [];
+  if (!validImages.length) {
+    return { ingredients: [], suggestedDishes: [] };
   }
 
   const messages = validImages.map((imgUrl) => ({
     role: "user",
     content: [
-      {
-        type: "image_url",
-        image_url: {
-          url: imgUrl,
-        },
-      },
+      { type: "image_url", image_url: { url: imgUrl } },
       {
         type: "text",
-        text: 'List all food ingredients visible in this image. Return only a JSON array of ingredient names, like: ["ingredient1", "ingredient2"]',
+        text: `Return ONLY JSON:
+{"ingredients": [{"name":"","quantity":"","state":"","confidence":0.9}], "suggestedDishes": []}`,
       },
     ],
   }));
 
   try {
-    console.log(`🔍 Using vision model: ${VISION_MODEL}`);
-
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
       headers: {
@@ -471,36 +591,26 @@ export async function detectIngredientsFromImages(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: VISION_MODEL, // Always use vision model for image detection
+        model: VISION_MODEL,
         messages,
         temperature: 0.5,
-        max_tokens: 500,
+        max_tokens: 800,
       }),
     });
 
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ error: "Unknown error" }));
-      throw new Error(`Groq API error: ${JSON.stringify(error)}`);
-    }
+    if (!response.ok) throw new Error("Failed to analyze");
 
     const data = await response.json();
     const content = data.choices[0].message.content;
 
-    // Parse the response
-    let cleaned = content.trim();
-    cleaned = cleaned.replace(/```json\n?/g, "");
-    cleaned = cleaned.replace(/```\n?/g, "");
-    cleaned = cleaned.trim();
-
-    const ingredients = JSON.parse(cleaned);
-    console.log("✅ Detected ingredients:", ingredients);
-
-    return Array.isArray(ingredients) ? ingredients : [];
+    let cleaned = content
+      .trim()
+      .replace(/```json\n?/g, "")
+      .replace(/```\n?/g, "");
+    return JSON.parse(cleaned);
   } catch (error) {
-    console.error("❌ Ingredient detection error:", error);
-    return [];
+    console.error("❌ Detection error:", error);
+    return { ingredients: [], suggestedDishes: [] };
   }
 }
 

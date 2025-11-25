@@ -1,11 +1,15 @@
-// services/spoonacularServices.ts - ULTRA-OPTIMIZED (Always Returns Results)
+// services/spoonacularServices.ts - ENHANCED WITH SMART PARAMETER MAPPING
 /**
- * Spoonacular API Service - GUARANTEED RESULTS
+ * Spoonacular API Service - INTELLIGENT SEARCH
  *
- * KEY FIXES:
- * 1. Removes compound ingredients (jollof rice → rice)
- * 2. More aggressive fallback strategy
- * 3. Always returns results (even if generic)
+ * NEW FEATURES:
+ * 1. Maps enhanced Groq analysis to optimal Spoonacular params
+ * 2. Respects priority levels (Critical > High > Medium > Low)
+ * 3. Progressive relaxation strategy when no results
+ * 4. Smart ingredient simplification
+ * 5. Meal goal integration
+ * 6. Better caching strategy
+ * 7. ULTIMATE FALLBACK: Ensures no zero-result states
  */
 
 import Constants from "expo-constants";
@@ -17,6 +21,7 @@ import {
   NutritionInfo,
   SpoonacularRecipeSearchResult,
 } from "@/types/recipe";
+import { RecipeAnalysisResponse } from "./groqServices";
 
 const SPOONACULAR_API_KEY =
   Constants.expoConfig?.extra?.spoonacularApiKey ||
@@ -27,73 +32,40 @@ const BASE_URL = "https://api.spoonacular.com";
 const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
 const CACHE_KEY_PREFIX = "spoonacular_cache_";
 
-// Cuisines that Spoonacular actually supports
-const SUPPORTED_CUISINES = [
-  "African",
-  "American",
-  "British",
-  "Cajun",
-  "Caribbean",
-  "Chinese",
-  "Eastern European",
-  "European",
-  "French",
-  "German",
-  "Greek",
-  "Indian",
-  "Irish",
-  "Italian",
-  "Japanese",
-  "Jewish",
-  "Korean",
-  "Latin American",
-  "Mediterranean",
-  "Mexican",
-  "Middle Eastern",
-  "Nordic",
-  "Southern",
-  "Spanish",
-  "Thai",
-  "Vietnamese",
-];
-
 // Ingredient simplification mapping
 const INGREDIENT_SIMPLIFICATION: Record<string, string> = {
-  // Rice variants
   "jollof rice": "rice",
   "fried rice": "rice",
   "basmati rice": "rice",
   "jasmine rice": "rice",
-
-  // Chicken variants
   "chicken breast": "chicken",
   "chicken thigh": "chicken",
-
-  // Fish variants
   catfish: "fish",
   tilapia: "fish",
   salmon: "fish",
-
-  // Common compounds
   "bell pepper": "peppers",
   "red onion": "onions",
   "white onion": "onions",
   "cherry tomatoes": "tomatoes",
 };
 
-/**
- * Check if API key is configured
- */
 export function isSpoonacularConfigured(): boolean {
   return !!SPOONACULAR_API_KEY;
 }
 
 /**
- * Generate cache key from params
+ * Simplify ingredient name
+ */
+function simplifyIngredient(ingredient: string): string {
+  const lower = ingredient.toLowerCase().trim();
+  return INGREDIENT_SIMPLIFICATION[lower] || lower;
+}
+
+/**
+ * Generate cache key
  */
 function getCacheKey(params: SpoonacularSearchParams): string {
-  const key = JSON.stringify(params);
-  return `${CACHE_KEY_PREFIX}${key}`;
+  return `${CACHE_KEY_PREFIX}${JSON.stringify(params)}`;
 }
 
 /**
@@ -103,150 +75,64 @@ async function getCachedResults(
   params: SpoonacularSearchParams
 ): Promise<SpoonacularSearchResponse | null> {
   try {
-    const cacheKey = getCacheKey(params);
-    const cached = await AsyncStorage.getItem(cacheKey);
-
+    const cached = await AsyncStorage.getItem(getCacheKey(params));
     if (cached) {
       const { data, timestamp } = JSON.parse(cached);
-      const age = Date.now() - timestamp;
-
-      if (age < CACHE_DURATION) {
-        console.log(
-          "✅ Using cached results (age:",
-          Math.round(age / 1000),
-          "seconds)"
-        );
+      if (Date.now() - timestamp < CACHE_DURATION) {
+        console.log("✅ Using cached results");
         return data;
-      } else {
-        await AsyncStorage.removeItem(cacheKey);
       }
+      await AsyncStorage.removeItem(getCacheKey(params));
     }
   } catch (error) {
     console.error("Cache read error:", error);
   }
-
   return null;
 }
 
 /**
- * Cache search results
+ * Cache results
  */
 async function cacheResults(
   params: SpoonacularSearchParams,
   results: SpoonacularSearchResponse
 ): Promise<void> {
   try {
-    const cacheKey = getCacheKey(params);
     await AsyncStorage.setItem(
-      cacheKey,
-      JSON.stringify({
-        data: results,
-        timestamp: Date.now(),
-      })
+      getCacheKey(params),
+      JSON.stringify({ data: results, timestamp: Date.now() })
     );
-    console.log("💾 Cached results for future use");
+    console.log("💾 Cached results");
   } catch (error) {
     console.error("Cache write error:", error);
   }
 }
 
 /**
- * Simplify ingredient names to base forms
- */
-function simplifyIngredient(ingredient: string): string {
-  const lower = ingredient.toLowerCase().trim();
-
-  // Check mapping first
-  if (INGREDIENT_SIMPLIFICATION[lower]) {
-    return INGREDIENT_SIMPLIFICATION[lower];
-  }
-
-  // Extract main ingredient from compound names
-  // "jollof rice" → "rice"
-  // "catfish pepper soup" → "catfish"
-  const words = lower.split(" ");
-
-  // Common patterns
-  if (words.length > 1) {
-    // If it ends with a base ingredient, use that
-    const lastWord = words[words.length - 1];
-    if (
-      [
-        "rice",
-        "chicken",
-        "fish",
-        "beef",
-        "pork",
-        "pasta",
-        "noodles",
-        "soup",
-        "salad",
-      ].includes(lastWord)
-    ) {
-      return lastWord;
-    }
-
-    // If it starts with a protein, use that
-    const firstWord = words[0];
-    if (
-      ["chicken", "beef", "pork", "fish", "shrimp", "lamb", "turkey"].includes(
-        firstWord
-      )
-    ) {
-      return firstWord;
-    }
-  }
-
-  return lower;
-}
-
-/**
- * Simplify ingredient list
- */
-function simplifyIngredients(ingredientsString: string): string {
-  const ingredients = ingredientsString.split(",").map((i) => i.trim());
-  const simplified = ingredients.map(simplifyIngredient);
-
-  // Remove duplicates and limit to 2
-  const unique = [...new Set(simplified)].slice(0, 2);
-
-  console.log("🔄 Simplified ingredients:", ingredients, "→", unique);
-
-  return unique.join(",");
-}
-
-/**
- * Generic fetch wrapper
+ * Generic Spoonacular API fetch
  */
 async function spoonacularFetch<T>(
   endpoint: string,
-  params?: Record<string, string>
+  params: Record<string, string> = {}
 ): Promise<T> {
   if (!SPOONACULAR_API_KEY) {
     throw new Error("Spoonacular API key not configured");
   }
 
-  const url = new URL(`${BASE_URL}${endpoint}`);
-  url.searchParams.append("apiKey", SPOONACULAR_API_KEY);
+  const searchParams = new URLSearchParams({
+    apiKey: SPOONACULAR_API_KEY,
+    ...params,
+  });
 
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== "") {
-        url.searchParams.append(key, value);
-      }
-    });
-  }
+  const url = `${BASE_URL}${endpoint}?${searchParams}`;
+  console.log(`🔍 Fetching: ${endpoint}`);
 
-  console.log("🌐 API Call:", endpoint);
-
-  const response = await fetch(url.toString());
+  const response = await fetch(url);
 
   if (!response.ok) {
-    const error = await response
-      .json()
-      .catch(() => ({ message: "Unknown error" }));
+    const error = await response.json().catch(() => ({}));
     throw new Error(
-      `Spoonacular API error: ${error.message || response.statusText}`
+      `Spoonacular API error: ${response.status} - ${JSON.stringify(error)}`
     );
   }
 
@@ -254,209 +140,223 @@ async function spoonacularFetch<T>(
 }
 
 /**
- * Filter cuisines to supported only
- */
-function filterSupportedCuisines(cuisineString: string): string | null {
-  const cuisines = cuisineString.split(",").map((c) => c.trim());
-  const supported = cuisines.filter((cuisine) =>
-    SUPPORTED_CUISINES.some(
-      (supported) => supported.toLowerCase() === cuisine.toLowerCase()
-    )
-  );
-
-  if (supported.length > 0) {
-    return supported.join(",");
-  }
-
-  const mapped: string[] = [];
-  cuisines.forEach((cuisine) => {
-    const lower = cuisine.toLowerCase();
-    if (
-      lower.includes("nigerian") ||
-      lower.includes("west african") ||
-      lower.includes("ghanaian")
-    ) {
-      mapped.push("African");
-    } else if (lower.includes("asian")) {
-      mapped.push("Chinese");
-    } else if (lower.includes("latin")) {
-      mapped.push("Latin American");
-    }
-  });
-
-  return mapped.length > 0 ? [...new Set(mapped)].slice(0, 1).join(",") : null;
-}
-
-/**
- * Search recipes with GUARANTEED results
- * MAX 2 API calls, returns generic results if needed
+ * ENHANCED: Search recipes with progressive relaxation
  */
 export async function searchRecipes(
   params: SpoonacularSearchParams
 ): Promise<SpoonacularSearchResponse> {
-  console.log("🔍 Starting search with params:", params);
+  console.log("🔍 Searching recipes with params:", params);
 
-  // Check cache first
+  // Try cache first
   const cached = await getCachedResults(params);
-  if (cached) {
-    console.log("♻️ Returning cached results");
-    return cached;
-  }
+  if (cached) return cached;
 
-  // STRATEGY 1: Try with ALL parameters (respect user preferences!)
-  console.log("📡 API Call 1: Full search with all filters...");
-
-  let result = await trySearch(params);
-
-  if (result.results.length > 0) {
-    console.log(`✅ Found ${result.results.length} recipes with full filters!`);
-    (result as any).searchStrategy = "full";
-    await cacheResults(params, result);
-    return result;
-  }
-
-  // STRATEGY 2: Remove nutritional constraints (keep cuisine, diet, intolerances)
-  console.log("📡 API Call 2: Without nutritional constraints...");
-
-  const strategy2 = { ...params };
-  delete strategy2.maxCalories;
-  delete strategy2.minProtein;
-  delete strategy2.maxCarbs;
-  delete strategy2.maxReadyTime;
-
-  result = await trySearch(strategy2);
-
-  if (result.results.length > 0) {
-    console.log(
-      `✅ Found ${result.results.length} recipes without nutrition filters!`
-    );
-    (result as any).searchStrategy = "no-nutrition";
-    await cacheResults(params, result);
-    return result;
-  }
-
-  // STRATEGY 3: Keep query and cuisine only
-  console.log("📡 API Call 3: Query + cuisine only...");
-
-  const strategy3: SpoonacularSearchParams = {
-    query: params.query,
-    cuisine: params.cuisine,
-    number: params.number || 20,
-    addRecipeInformation: true,
-    sort: params.sort || "popularity",
-    offset: params.offset,
+  // Convert to API params
+  const apiParams: Record<string, string> = {
+    number: String(params.number || 20),
+    offset: String(params.offset || 0),
   };
 
-  result = await trySearch(strategy3);
+  if (params.query) apiParams.query = params.query;
+  if (params.cuisine) apiParams.cuisine = params.cuisine;
+  if (params.diet) apiParams.diet = params.diet;
+  if (params.intolerances) apiParams.intolerances = params.intolerances;
+  if (params.excludeIngredients)
+    apiParams.excludeIngredients = params.excludeIngredients;
+  if (params.type) apiParams.type = params.type;
 
-  if (result.results.length > 0) {
-    console.log(
-      `✅ Found ${result.results.length} recipes with query + cuisine!`
+  // FIX: Ensure maxReadyTime is a number string
+  if (params.maxReadyTime && !isNaN(Number(params.maxReadyTime))) {
+    apiParams.maxReadyTime = String(params.maxReadyTime);
+  }
+
+  if (params.sort) apiParams.sort = params.sort;
+  if (params.addRecipeInformation) apiParams.addRecipeInformation = "true";
+  if (params.fillIngredients) apiParams.fillIngredients = "true";
+
+  // Nutritional params
+  if (params.maxCalories) apiParams.maxCalories = String(params.maxCalories);
+  if (params.minProtein) apiParams.minProtein = String(params.minProtein);
+  if (params.maxCarbs) apiParams.maxCarbs = String(params.maxCarbs);
+
+  try {
+    // Strategy 1: Try full search
+    console.log("📊 Strategy 1: Full search");
+    let results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      apiParams
     );
-    (result as any).searchStrategy = "cuisine-only";
-    await cacheResults(params, result);
-    return result;
-  }
 
-  // STRATEGY 4: Just query
-  console.log("📡 API Call 4: Query only...");
-
-  const strategy4: SpoonacularSearchParams = {
-    query: params.query || "popular recipes",
-    number: params.number || 20,
-    addRecipeInformation: true,
-    sort: params.sort || "popularity",
-    offset: params.offset,
-  };
-
-  result = await trySearch(strategy4);
-
-  if (result.results.length > 0) {
-    console.log(`✅ Found ${result.results.length} recipes with query only!`);
-    (result as any).searchStrategy = "query-only";
-  } else {
-    console.log("⚠️ No results (this should never happen)");
-    (result as any).searchStrategy = "failed";
-  }
-
-  await cacheResults(params, result);
-  return result;
-}
-
-/**
- * Try a single search
- */
-async function trySearch(
-  params: SpoonacularSearchParams
-): Promise<SpoonacularSearchResponse> {
-  const queryParams: Record<string, string> = {};
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      queryParams[key] = String(value);
+    if (results.results.length > 0) {
+      await cacheResults(params, results);
+      return { ...results, searchStrategy: "full" } as any;
     }
-  });
 
-  if (!queryParams.number) {
-    queryParams.number = "10";
+    // Strategy 2: Remove nutritional constraints
+    console.log("📊 Strategy 2: Remove nutrition filters");
+    delete apiParams.maxCalories;
+    delete apiParams.minProtein;
+    delete apiParams.maxCarbs;
+
+    results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      apiParams
+    );
+
+    if (results.results.length > 0) {
+      await cacheResults(params, results);
+      return { ...results, searchStrategy: "no-nutrition" } as any;
+    }
+
+    // Strategy 3: Remove cuisine constraint
+    console.log("📊 Strategy 3: Remove cuisine filter");
+    delete apiParams.cuisine;
+
+    results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      apiParams
+    );
+
+    if (results.results.length > 0) {
+      await cacheResults(params, results);
+      return { ...results, searchStrategy: "no-cuisine" } as any;
+    }
+
+    // Strategy 4: Remove time constraint
+    console.log("📊 Strategy 4: Remove time filter");
+    delete apiParams.maxReadyTime;
+
+    results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      apiParams
+    );
+
+    if (results.results.length > 0) {
+      await cacheResults(params, results);
+      return { ...results, searchStrategy: "no-time" } as any;
+    }
+
+    // Strategy 5: Broadest search (keep only critical filters)
+    console.log("📊 Strategy 5: Critical filters only");
+    const criticalParams: Record<string, string> = {
+      number: apiParams.number,
+      offset: apiParams.offset,
+      sort: "popularity",
+      addRecipeInformation: "true",
+    };
+
+    // Keep CRITICAL filters
+    if (apiParams.intolerances)
+      criticalParams.intolerances = apiParams.intolerances;
+    if (apiParams.excludeIngredients)
+      criticalParams.excludeIngredients = apiParams.excludeIngredients;
+    if (apiParams.diet) criticalParams.diet = apiParams.diet;
+
+    // Simple query
+    if (apiParams.query) {
+      const words = apiParams.query.split(" ");
+      criticalParams.query = words.slice(0, 2).join(" ") || "recipes";
+    } else {
+      criticalParams.query = "popular recipes";
+    }
+
+    results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      criticalParams
+    );
+
+    if (results.results.length > 0) {
+      await cacheResults(params, results);
+      return { ...results, searchStrategy: "broad" } as any;
+    }
+
+    // Strategy 6: Ultimate Fallback I - Remove Query, Keep all Filters + Random Sort
+    console.log("📊 Strategy 6: Remove query completely, keep all filters");
+    const noQueryParams: Record<string, string> = {
+      number: apiParams.number,
+      addRecipeInformation: "true",
+      sort: "random",
+    };
+    if (apiParams.diet) noQueryParams.diet = apiParams.diet;
+    if (apiParams.intolerances)
+      noQueryParams.intolerances = apiParams.intolerances;
+    if (apiParams.excludeIngredients)
+      noQueryParams.excludeIngredients = apiParams.excludeIngredients;
+
+    results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      noQueryParams
+    );
+
+    if (results.results.length > 0) {
+      await cacheResults(params, results);
+      return { ...results, searchStrategy: "no-query-random" } as any;
+    }
+
+    // Strategy 7: Ultimate Fallback II - Remove Diet, Keep Safety (Allergies) only
+    console.log("📊 Strategy 7: Safety only (Allergies only), Popular sort");
+    const safetyParams: Record<string, string> = {
+      number: apiParams.number,
+      addRecipeInformation: "true",
+      sort: "popularity",
+    };
+    // CRITICAL: We MUST keep intolerances to prevent allergic reactions
+    if (apiParams.intolerances)
+      safetyParams.intolerances = apiParams.intolerances;
+
+    results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      safetyParams
+    );
+
+    if (results.results.length > 0) {
+      await cacheResults(params, results);
+      return { ...results, searchStrategy: "safety-only" } as any;
+    }
+
+    // Strategy 8: Absolute Last Resort (Everything removed)
+    // Only reachable if even "popular recipes without peanuts" returns 0.
+    console.log("📊 Strategy 8: Absolute Fallback (Random Popular)");
+    const absoluteParams: Record<string, string> = {
+      number: apiParams.number,
+      addRecipeInformation: "true",
+      sort: "random",
+    };
+
+    results = await spoonacularFetch<SpoonacularSearchResponse>(
+      "/recipes/complexSearch",
+      absoluteParams
+    );
+
+    await cacheResults(params, results);
+    return { ...results, searchStrategy: "absolute-fallback" } as any;
+  } catch (error) {
+    console.error("❌ Search error:", error);
+    throw error;
   }
-  if (!queryParams.addRecipeInformation) {
-    queryParams.addRecipeInformation = "true";
-  }
-
-  console.log("🔍 Search params:", queryParams);
-
-  return spoonacularFetch<SpoonacularSearchResponse>(
-    "/recipes/complexSearch",
-    queryParams
-  );
 }
 
 /**
- * Get detailed recipe information by ID
+ * Get recipe details
  */
 export async function getRecipeDetails(
   recipeId: number
 ): Promise<SpoonacularRecipe> {
-  const cacheKey = `${CACHE_KEY_PREFIX}details_${recipeId}`;
-  try {
-    const cached = await AsyncStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, timestamp } = JSON.parse(cached);
-      if (Date.now() - timestamp < CACHE_DURATION) {
-        console.log("✅ Using cached recipe details");
-        return data;
-      }
-    }
-  } catch (error) {
-    console.error("Cache error:", error);
-  }
-
-  const recipe = await spoonacularFetch<SpoonacularRecipe>(
+  return spoonacularFetch<SpoonacularRecipe>(
     `/recipes/${recipeId}/information`,
     { includeNutrition: "true" }
   );
-
-  try {
-    await AsyncStorage.setItem(
-      cacheKey,
-      JSON.stringify({ data: recipe, timestamp: Date.now() })
-    );
-  } catch (error) {
-    console.error("Cache error:", error);
-  }
-
-  return recipe;
 }
 
 /**
- * Get recipe nutrition information
+ * Get recipe nutrition
  */
 export async function getRecipeNutrition(
   recipeId: number
 ): Promise<NutritionInfo> {
   return spoonacularFetch<NutritionInfo>(
-    `/recipes/${recipeId}/nutritionWidget.json`
+    `/recipes/${recipeId}/nutritionWidget.json`,
+    {}
   );
 }
 
@@ -495,13 +395,12 @@ export async function getRandomRecipes(
 }
 
 /**
- * Search recipes by ingredients
+ * Search by ingredients
  */
 export async function searchByIngredients(
   ingredients: string[],
   numberOfResults: number = 10
 ): Promise<any[]> {
-  // Simplify ingredients
   const simplified = ingredients.map(simplifyIngredient).slice(0, 2);
 
   return spoonacularFetch<any[]>("/recipes/findByIngredients", {
@@ -513,7 +412,7 @@ export async function searchByIngredients(
 }
 
 /**
- * Get recipes by category/tag
+ * Get recipes by category
  */
 export async function getRecipesByCategory(
   category: string,
@@ -567,104 +466,157 @@ export async function parseIngredients(
 }
 
 /**
- * Convert Groq response to Spoonacular params
+ * ENHANCED: Convert enhanced Groq response to Spoonacular params
  */
 export function groqToSpoonacularParams(
-  groqResponse: any,
+  groqResponse: RecipeAnalysisResponse,
   options?: { offset?: number; forceRandom?: boolean }
 ): SpoonacularSearchParams {
+  console.log("🔄 Converting enhanced Groq response to Spoonacular params");
+
   const params: SpoonacularSearchParams = {
     number: 20,
     addRecipeInformation: true,
     offset: options?.offset || 0,
   };
 
-  // Smart sort strategy based on search context
+  // Smart sort strategy
   if (options?.forceRandom) {
-    // For "Generate New" - use random
     params.sort = "random";
   } else {
-    // Match sort to search type
-    const query = groqResponse.naturalLanguageQuery?.toLowerCase() || "";
-    const hasCuisine =
-      groqResponse.cuisines && groqResponse.cuisines.length > 0;
-    const hasDiet = groqResponse.diets && groqResponse.diets.length > 0;
+    // Determine sort based on meal goals and context
+    // Safe access with optional chaining and defaults
+    const goals = groqResponse.appliedFilters?.medium?.mealGoals || [];
+    const timePreference =
+      groqResponse.extractedKeyPoints?.timePreference?.preference;
 
-    if (query.includes("healthy") || query.includes("nutrition") || hasDiet) {
+    if (goals.includes("Weight Loss") || goals.includes("Balanced Diet")) {
       params.sort = "healthiness";
-    } else if (
-      query.includes("quick") ||
-      query.includes("fast") ||
-      groqResponse.maxCookingTime
-    ) {
+    } else if (goals.includes("Quick Meals") || timePreference === "quick") {
       params.sort = "time";
-    } else if (hasCuisine) {
-      params.sort = "meta-score"; // Best for cuisine-specific searches
+    } else if (groqResponse.extractedKeyPoints?.cuisine?.requested) {
+      params.sort = "meta-score";
     } else {
       params.sort = "popularity";
     }
   }
 
-  // Query - keep it simple but include cuisine hints
-  if (groqResponse.naturalLanguageQuery) {
-    let query = groqResponse.naturalLanguageQuery;
-    // Remove unsupported cuisines but keep the query
-    query = query.replace(/nigerian|west african|ghanaian|kenyan/gi, "");
-    params.query = query.trim();
+  // Natural language query
+  if (groqResponse.spoonacularParams?.query) {
+    params.query = groqResponse.spoonacularParams.query;
   }
 
-  // Cuisines - ADD BACK with priority
-  if (groqResponse.cuisines && groqResponse.cuisines.length > 0) {
-    // Use first cuisine for better results
-    params.cuisine = groqResponse.cuisines[0];
+  // Cuisine - use first cuisine from analysis
+  if (groqResponse.spoonacularParams?.cuisines?.length > 0) {
+    params.cuisine = groqResponse.spoonacularParams.cuisines[0];
   }
 
-  // Ingredients - simplify and limit to 2
-  if (groqResponse.ingredients && groqResponse.ingredients.length > 0) {
-    const simplified = groqResponse.ingredients
-      .map(simplifyIngredient)
-      .slice(0, 2);
+  // PRIMARY INGREDIENTS - Add to query for better results
+  // SAFE ACCESS: Check if extractedKeyPoints, primaryIngredients, and items exist
+  const primaryIngredients =
+    groqResponse.extractedKeyPoints?.primaryIngredients?.items || [];
+
+  if (primaryIngredients.length > 0) {
+    const simplified = primaryIngredients.map(simplifyIngredient).slice(0, 2);
     params.includeIngredients = simplified.join(",");
   }
 
-  // Diets - STRICT filtering based on user preferences
-  if (groqResponse.diets && groqResponse.diets.length > 0) {
-    // Use first diet (most important)
-    params.diet = groqResponse.diets[0].toLowerCase();
+  // CRITICAL: Diets (from HIGH priority)
+  // SAFE ACCESS: Check appliedFilters, high, and diets
+  const highPriorityDiets = groqResponse.appliedFilters?.high?.diets || [];
+
+  if (highPriorityDiets.length > 0) {
+    const dietMap: Record<string, string> = {
+      vegetarian: "vegetarian",
+      vegan: "vegan",
+      keto: "ketogenic",
+      paleo: "paleo",
+      glutenFree: "gluten free",
+      dairyFree: "dairy free",
+      lowCarb: "ketogenic",
+      highProtein: "primal",
+    };
+    const diet = highPriorityDiets[0];
+    params.diet = dietMap[diet] || diet;
   }
 
-  // Intolerances - STRICT filtering (safety!)
-  if (groqResponse.intolerances && groqResponse.intolerances.length > 0) {
-    params.intolerances = groqResponse.intolerances.join(",");
+  // CRITICAL: Intolerances (from CRITICAL priority)
+  // SAFE ACCESS
+  const criticalIntolerances =
+    groqResponse.appliedFilters?.critical?.intolerances || [];
+  if (criticalIntolerances.length > 0) {
+    params.intolerances = criticalIntolerances.join(",");
   }
 
-  // Exclude ingredients - STRICT filtering
-  if (
-    groqResponse.excludeIngredients &&
-    groqResponse.excludeIngredients.length > 0
-  ) {
-    params.excludeIngredients = groqResponse.excludeIngredients.join(",");
+  // CRITICAL: Allergies (from CRITICAL priority)
+  // SAFE ACCESS
+  const criticalAllergies =
+    groqResponse.appliedFilters?.critical?.allergies || [];
+  if (criticalAllergies.length > 0) {
+    const allergyMap: Record<string, string> = {
+      peanuts: "peanut",
+      treeNuts: "tree nut",
+      eggs: "egg",
+      soy: "soy",
+      shellfish: "shellfish",
+      wheat: "wheat",
+      lactose: "dairy",
+    };
+    const allergies = criticalAllergies
+      .map((a) => allergyMap[a] || a)
+      .join(",");
+    if (params.intolerances) {
+      params.intolerances += "," + allergies;
+    } else {
+      params.intolerances = allergies;
+    }
+  }
+
+  // HIGH: Exclude ingredients
+  // SAFE ACCESS
+  const excludeIngredients =
+    groqResponse.appliedFilters?.high?.excludeIngredients || [];
+  if (excludeIngredients.length > 0) {
+    params.excludeIngredients = excludeIngredients.join(",");
   }
 
   // Meal type
-  if (groqResponse.mealType) {
-    params.type = groqResponse.mealType;
+  if (groqResponse.extractedKeyPoints?.mealType?.type) {
+    params.type = groqResponse.extractedKeyPoints.mealType.type;
   }
 
-  // Cooking time - if specified
-  if (groqResponse.maxCookingTime) {
-    params.maxReadyTime = groqResponse.maxCookingTime;
+  // Cooking time (FIXED: Handle text values from AI)
+  // SAFE ACCESS
+  const maxTime = groqResponse.extractedKeyPoints?.timePreference?.max;
+  if (maxTime) {
+    if (typeof maxTime === "number") {
+      params.maxReadyTime = maxTime;
+    } else if (typeof maxTime === "string") {
+      // Handle hallucinated strings
+      const lower = String(maxTime).toLowerCase();
+      if (lower.includes("quick")) params.maxReadyTime = 30;
+      else if (lower.includes("moderate")) params.maxReadyTime = 60;
+      else if (lower.includes("elaborate")) params.maxReadyTime = 120;
+      else {
+        const parsed = parseInt(String(maxTime));
+        if (!isNaN(parsed)) params.maxReadyTime = parsed;
+      }
+    }
+  } else if (
+    groqResponse.extractedKeyPoints?.timePreference?.preference === "quick"
+  ) {
+    params.maxReadyTime = 30;
   }
 
-  // Nutritional targets - if specified
-  if (groqResponse.nutritionalTargets) {
-    const targets = groqResponse.nutritionalTargets;
+  // Nutritional targets (only if specified)
+  if (groqResponse.spoonacularParams?.nutritionalTargets) {
+    const targets = groqResponse.spoonacularParams.nutritionalTargets;
     if (targets.maxCalories) params.maxCalories = targets.maxCalories;
     if (targets.minProtein) params.minProtein = targets.minProtein;
     if (targets.maxCarbs) params.maxCarbs = targets.maxCarbs;
   }
 
-  console.log("📋 Groq → Spoonacular (with preferences):", params);
+  console.log("✅ Converted params:", params);
 
   return params;
 }
