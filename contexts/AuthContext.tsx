@@ -215,6 +215,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   /**
    * Sign up with email and password
+   * FIXED: Robust name saving and merge strategy
    */
   const signUpWithEmail = async (
     email: string,
@@ -226,6 +227,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       console.log("📝 Creating user account...");
 
+      // Validate inputs
+      if (!name) throw new Error("Name is required");
+      if (!email) throw new Error("Email is required");
+
       // Create Firebase Auth user
       const userCredential = await createUserWithEmailAndPassword(
         auth,
@@ -236,26 +241,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       console.log("✅ Firebase user created:", user.uid);
 
-      // Update display name
-      await updateProfile(user, {
-        displayName: name,
-      });
-      console.log("✅ Display name updated");
+      // Update display name (Auth Profile)
+      // Wrapped in try-catch so it doesn't block DB write if it fails
+      try {
+        await updateProfile(user, {
+          displayName: name,
+        });
+        console.log("✅ Display name updated in Auth Profile");
+      } catch (e) {
+        console.warn(
+          "⚠️ Failed to update auth display name (non-critical):",
+          e
+        );
+      }
 
       // Send verification email
-      await sendEmailVerification(user);
-      console.log("✅ Verification email sent to:", email);
+      try {
+        await sendEmailVerification(user);
+        console.log("✅ Verification email sent to:", email);
+      } catch (e) {
+        console.error("⚠️ Failed to send verification email:", e);
+        // We continue so user is at least created in DB
+      }
 
       // Create Firestore user document
-      await setDoc(doc(db, "users", user.uid), {
-        name: name,
-        email: user.email,
+      // FIX: Use 'merge: true' and explicit values to guarantee data integrity
+      const userData = {
+        name: name, // Explicitly use the passed name argument
+        email: user.email || email, // Fallback to passed email if user object incomplete
         photoURL: null,
         emailVerified: false,
         createdAt: serverTimestamp(),
         authProvider: "email",
-      });
-      console.log("✅ Firestore user document created");
+        updatedAt: serverTimestamp(),
+      };
+
+      await setDoc(doc(db, "users", user.uid), userData, { merge: true });
+      console.log("✅ Firestore user document created with Name:", name);
 
       // Sign out - user must verify email first
       await signOut(auth);

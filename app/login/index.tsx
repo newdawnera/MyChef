@@ -757,7 +757,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             {/* OR Divider */}
-            <View
+            {/*<View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -788,10 +788,10 @@ export default function LoginScreen() {
                   backgroundColor: "#E5E7EB",
                 }}
               />
-            </View>
+            </View>*/}
 
             {/* Google Sign-In Button - PRODUCTION READY */}
-            <Animated.View
+            {/*<Animated.View
               style={{ transform: [{ scale: googleButtonScale }] }}
             >
               <TouchableOpacity
@@ -845,10 +845,10 @@ export default function LoginScreen() {
                   </>
                 )}
               </TouchableOpacity>
-            </Animated.View>
+            </Animated.View>*/}
 
             {/* Helper Text for Google Sign-In */}
-            {!isGoogleSignInAvailable && (
+            {/*{!isGoogleSignInAvailable && (
               <Text
                 style={{
                   fontSize: 12,
@@ -859,7 +859,7 @@ export default function LoginScreen() {
               >
                 ⚠️ Google Sign-In configuration incomplete
               </Text>
-            )}
+            )}*/}
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>

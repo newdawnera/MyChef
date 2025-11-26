@@ -49,5 +49,6 @@ app-example
 # Keep the example file
 !.env.example
 
-# google-services.json
+google-services.json
+
 GoogleService-Info.plist

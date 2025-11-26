@@ -74,7 +74,7 @@ const FilterArrow = ({
         alignItems: "center",
         height: HEIGHT,
         zIndex: total - index,
-        marginLeft: index === 0 ? 0 : -ARROW_WIDTH, // Overlap logic
+        marginLeft: index === 0 ? 0 : -ARROW_WIDTH - 4, // Overlap logic
         flex: 1, // Allow item to expand to fill available space
         shadowColor: "#000",
         shadowOpacity: 0.05,
@@ -90,7 +90,7 @@ const FilterArrow = ({
           // Adjust padding: Left accounts for the previous arrow's point.
           // Right is smaller to fit text better.
           paddingLeft: index === 0 ? 12 : ARROW_WIDTH + 8,
-          paddingRight: 4,
+          paddingRight: 6,
           justifyContent: "center",
           alignItems: "center", // Center content horizontally
           borderTopLeftRadius: index === 0 ? 8 : 0,

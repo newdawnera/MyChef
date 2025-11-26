@@ -215,7 +215,8 @@ export function HelpSupportModal({
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        enabled={Platform.OS === "ios"}
+        behavior="padding"
         style={{ flex: 1 }}
       >
         <View
