@@ -39,6 +39,8 @@ import {
   Bookmark,
   BookmarkCheck,
   Sparkles,
+  MessageCircle,
+  Rotate3D,
 } from "lucide-react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import ConfettiCannon from "react-native-confetti-cannon";
@@ -226,7 +228,16 @@ const MetaItem: React.FC<MetaItemProps> = ({
         }}
       >
         <Icon size={18} color={color} />
-        <Text style={{ fontSize: 14, color: color, fontWeight: "600" }}>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          style={{
+            fontSize: 14,
+            color: color,
+            fontWeight: "600",
+            paddingRight: 2,
+          }}
+        >
           {value}
         </Text>
       </Animated.View>
@@ -1315,7 +1326,7 @@ export default function RecipeDetailsScreen() {
             width: 60,
             height: 60,
             borderRadius: 30,
-            backgroundColor: colors.primary,
+            backgroundColor: colors.primary + "CC",
             alignItems: "center",
             justifyContent: "center",
             // Updated Shadow for "Glow" Effect
@@ -1327,7 +1338,52 @@ export default function RecipeDetailsScreen() {
           }}
           activeOpacity={0.8}
         >
-          <Sparkles size={28} color="#FFFFFF" />
+          {/* 1. The Message Icon (Wrapped in a View to safely flip it) */}
+          {/* 1. The Message Icon (Wrapped in View to safely flip tail to RIGHT) */}
+          <View style={{ transform: [{ scaleX: -1 }] }}>
+            <MessageCircle size={32} color="#FFFFFF" />
+          </View>
+
+          {/* 2. The Sparkles (Centered absolutely) */}
+          <Sparkles
+            size={14}
+            color="#FFFFFF"
+            style={{ position: "absolute", top: 22, right: 22 }}
+          />
+
+          {/* 3. Curved "ASK AI" Text */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {["A", "S", "K", " ", "A", "I"].map((char, index) => {
+              // Calculate angle: Spread the 6 chars from -30 to +30 degrees
+              const angle = -60 + index * 16;
+              return (
+                <Text
+                  key={index}
+                  style={{
+                    position: "absolute",
+                    fontSize: 7,
+                    fontWeight: "900",
+                    color: "#FFFFFF",
+                    // Magic happens here: Rotate first, then push OUT (-24px) to create the arc
+                    transform: [{ rotate: `${angle}deg` }, { translateY: -22 }],
+                  }}
+                >
+                  {char}
+                </Text>
+              );
+            })}
+          </View>
         </TouchableOpacity>
       </Animated.View>
 

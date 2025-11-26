@@ -152,7 +152,7 @@ export function useNotifications(userName: string = "Chef") {
         },
         trigger: {
           type: "calendar",
-          hour: 7,
+          hour: 10,
           minute: 0,
           repeats: true,
         } as Notifications.CalendarTriggerInput,
